@@ -17,13 +17,13 @@ CHANNELS = 1 # Number of colors in the image (greyscale)
 
 VALID = 1000 # Validation data size
 
-STEPS = 8000# Number of steps to run
+STEPS = 2000# Number of steps to run
 BATCH = 32 # Stochastic Gradient Descent batch size
 PATCH = 5 # Convolutional Kernel size
 DEPTH = 32 #32 # Convolutional Kernel depth size == Number of Convolutional Kernels
 HIDDEN = 1024 #1024 # Number of hidden neurons in the fully connected layer
 
-LR = 0.0013 # Learning rate
+LR = 0.001 # Learning rate
 
 
 labels = np.array(data.pop('label')) # Remove the labels as a numpy array from the dataframe
@@ -54,6 +54,7 @@ b4 = tf.Variable(tf.constant(1.0, shape=[LABELS]))
 def logits(data):
     # Convolutional layer 1
     x = tf.nn.conv2d(data, w1, [1, 1, 1, 1], padding='SAME')
+    # pool laryer
     x = tf.nn.max_pool(x, [1, 2, 2, 1], [1, 2, 2, 1], padding='SAME')
     x = tf.nn.relu(x + b1)
     # Convolutional layer 2
@@ -72,16 +73,16 @@ tf_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits(t
                                                                  labels=tf_labels))
 tf_acc = 100*tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(tf_pred, 1), tf.argmax(tf_labels, 1))))
 
-#tf_opt = tf.train.GradientDescentOptimizer(LR)
+tf_opt = tf.train.GradientDescentOptimizer(LR)
 #tf_opt = tf.train.AdamOptimizer(LR)
-tf_opt = tf.train.RMSPropOptimizer(LR)
+# tf_opt = tf.train.RMSPropOptimizer(LR)
 tf_step = tf_opt.minimize(tf_loss)
 
 
 init = tf.global_variables_initializer()
 session = tf.Session()
 session.run(init)
-train_data[4].shape
+print(train_data[4].shape)
 
 ss = ShuffleSplit(n_splits=STEPS, train_size=BATCH)
 ss.get_n_splits(train_data, train_labels)
@@ -89,7 +90,7 @@ history = [(0, np.nan, 10)] # Initial Error Measures
 for step, (idx, _) in enumerate(ss.split(train_data,train_labels), start=1):
     fd = {tf_data:train_data[idx], tf_labels:train_labels[idx]}
     session.run(tf_step, feed_dict=fd)
-    if step%500 == 0:
+    if step%100 == 0:
         fd = {tf_data:valid_data, tf_labels:valid_labels}
         valid_loss, valid_accuracy = session.run([tf_loss, tf_acc], feed_dict=fd)
         history.append((step, valid_loss, valid_accuracy))
@@ -119,7 +120,7 @@ plt.show()
 
 
 
-test = pd.read_csv('test.csv') # Read csv file in pandas dataframe
+
 test.info()
 test_data = StandardScaler().fit_transform(np.float32(test.values)) # Convert the dataframe to a numpy array
 test_data = test_data.reshape(-1, WIDTH, WIDTH, CHANNELS) # Reshape the data into 42000 2d images
@@ -142,7 +143,7 @@ for (idx, _) in enumerate(ss.split(test_data), start=0):
 print(len(test_labels))
 
 
-k = 43 # Try different image indices k
+k = 98 # Try different image indices k
 print("Label Prediction: %i"%test_labels[k])
 fig = plt.figure(figsize=(2,2)); plt.axis('off')
 plt.imshow(test_data[k,:,:,0]); plt.show()
