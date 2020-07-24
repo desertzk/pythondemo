@@ -98,16 +98,50 @@ class JsonEncoder:
 
 
 
+
+
+
+
 # response=requests.get("http://10.103.13.225:80/api/v2/tenants/5de5d572d5f4aa0f3378c013/network/locations",headers={"X-Amz-Security-Token": "5de5d572d5f4aa0f3378c012"})
 #
 # print(response)
 
-# jsd.getValueFromDictBy2Key(json.loads(response.text),"zones","id")
+jsd = JsonDecoder()
 
+jsondict = {
+    "secret": "cNrk3Ytq2ywWfdSID3zs2CXwVFrK6t4z",
+    "chicken": {
+        "version": 61177166
+    },
+    "panda": {
+        "cpuUsage": False,
+        "memUsage": False,
+        "throughput24": False,
+        "throughput5": False,
+        "clientNum": False,
+        "datapack": True
+    },
+    "apiGateway": {
+        "raccoonUrl": "http://10.103.13.225",
+        "chickenUrl": "http://10.103.13.225",
+        "pandaUrl": "10.103.13.225",
+        "tortoiseUrl": "https://tortoise-sonicwall.sonicwall.com"
+    },
+    "updateFirmware": {
+        "version": "Not Found",
+        "is_auto": True,
+        "retry_duration": 3600,
+        "schedule": [
+            "00 07 * * 0"
+        ]
+    }
+}
+version = jsd.getValueFromDictBy2Key(jsondict,"chicken","version")
+print(version)
 
 response=requests.get("http://10.103.13.225:80/api/v2/tenants/5de5d572d5f4aa0f3378c013/policies/ssid-groups",headers={"X-Amz-Security-Token": "5de5d572d5f4aa0f3378c012"})
 jed = JsonEncoder()
-jsd = JsonDecoder()
+
 resp = json.loads(response.text)
 ssids = jsd.getValueFromDictByKey(resp,"ssids")
 groupID = jsd.getValueFromDictByKey(resp,"default_group_id")
