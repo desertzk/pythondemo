@@ -24,7 +24,8 @@ def readfile(path, label):
       return x
 
 #分別將 training set、validation set、testing set 用 readfile 函式讀進來
-workspace_dir = '/home/zk/machine_learning/lhy_DL_Hw/data/hw3/food-11'
+# workspace_dir = '/home/zk/machine_learning/lhy_DL_Hw/data/hw3/food-11'
+workspace_dir = '../lhy/data/hw3/food-11'
 print("Reading data")
 train_x, train_y = readfile(os.path.join(workspace_dir, "training"), True)
 print("Size of training data = {}".format(len(train_x)))
@@ -66,7 +67,7 @@ class ImgDataset(Dataset):
         else:
             return X
 
-batch_size = 64
+batch_size = 80
 train_set = ImgDataset(train_x, train_y, train_transform)
 val_set = ImgDataset(val_x, val_y, test_transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
@@ -80,7 +81,7 @@ class Classifier(nn.Module):
         # torch.nn.MaxPool2d(kernel_size, stride, padding)
         # input 維度 [3, 128, 128]
         self.cnn = nn.Sequential(
-            nn.Conv2d(3, 64, 3, 1, 1),  # [64, 128, 128]
+            nn.Conv2d(3, 64, 3, 1, 1),  # [64, 128, 128] 进去3通道出来64通道
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2, 2, 0),  # [64, 64, 64]
@@ -123,7 +124,7 @@ model = Classifier().cuda()
 loss = nn.CrossEntropyLoss()  # 因為是 classification task，所以 loss 使用 CrossEntropyLoss
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)  # optimizer 使用 Adam
 num_epoch = 30
-
+# 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
 for epoch in range(num_epoch):
     epoch_start_time = time.time()
     train_acc = 0.0
@@ -132,6 +133,7 @@ for epoch in range(num_epoch):
     val_loss = 0.0
 
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
+    # 所谓iterations就是完成一次epoch所需的batch个数。
     for i, data in enumerate(train_loader):
         optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
         train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數
