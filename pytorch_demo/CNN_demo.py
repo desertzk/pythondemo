@@ -5,8 +5,11 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 import pandas as pd
+from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 import time
+from matplotlib import pyplot as plt
+
 
 def readfile(path, label):
     # label 是一個 boolean variable，代表需不需要回傳 y 值
@@ -15,6 +18,7 @@ def readfile(path, label):
     y = np.zeros((len(image_dir)), dtype=np.uint8)
     for i, file in enumerate(image_dir):
         img = cv2.imread(os.path.join(path, file))
+        # cv2.imshow('image', img)
         x[i, :, :] = cv2.resize(img,(128, 128))
         if label:
           y[i] = int(file.split("_")[0])
@@ -28,6 +32,14 @@ def readfile(path, label):
 workspace_dir = '../lhy/data/hw3/food-11'
 print("Reading data")
 train_x, train_y = readfile(os.path.join(workspace_dir, "training"), True)
+ndarray_data = train_x[0]
+cv2.imshow('image', ndarray_data)
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
+# img = Image.fromarray(ndarray_data)
+# # img.save('my.png')
+# img.show()
+
 print("Size of training data = {}".format(len(train_x)))
 val_x, val_y = readfile(os.path.join(workspace_dir, "validation"), True)
 print("Size of validation data = {}".format(len(val_x)))
@@ -67,7 +79,7 @@ class ImgDataset(Dataset):
         else:
             return X
 
-batch_size = 80
+batch_size = 81
 train_set = ImgDataset(train_x, train_y, train_transform)
 val_set = ImgDataset(val_x, val_y, test_transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
@@ -116,8 +128,10 @@ class Classifier(nn.Module):
 
     def forward(self, x):
         out = self.cnn(x)
+        # 相当于np中的reshape可以拉平到linear model 这里的out.size()[0]应该就是batch_size
         out = out.view(out.size()[0], -1)
         return self.fc(out)
+
 
 
 model = Classifier().cuda()
@@ -137,8 +151,9 @@ for epoch in range(num_epoch):
     for i, data in enumerate(train_loader):
         optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
         train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數
-        batch_loss = loss(train_pred, data[1].cuda())  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上）
+        batch_loss = loss(train_pred, data[1].cuda())  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
         batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
+        print(data[0].cuda().grad)
         optimizer.step()  # 以 optimizer 用 gradient 更新參數值
 
         train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())
