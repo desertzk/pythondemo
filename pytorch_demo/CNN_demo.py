@@ -34,8 +34,8 @@ print("Reading data")
 train_x, train_y = readfile(os.path.join(workspace_dir, "training"), True)
 ndarray_data = train_x[0]
 cv2.imshow('image', ndarray_data)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+cv2.waitKey(0)
+cv2.destroyAllWindows()
 # img = Image.fromarray(ndarray_data)
 # # img.save('my.png')
 # img.show()
@@ -59,6 +59,16 @@ test_transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.ToTensor(),
 ])
+
+
+ndarray_data_transform = train_transform(train_x[0]).numpy()
+# 这里可能不能用reshape转
+ndarray_data_transform=np.reshape(ndarray_data_transform,(128,128,3))
+cv2.imshow('image', ndarray_data_transform)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+
 class ImgDataset(Dataset):
     def __init__(self, x, y=None, transform=None):
         self.x = x
@@ -84,6 +94,7 @@ train_set = ImgDataset(train_x, train_y, train_transform)
 val_set = ImgDataset(val_x, val_y, test_transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
+
 
 
 class Classifier(nn.Module):
@@ -148,15 +159,15 @@ for epoch in range(num_epoch):
 
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
     # 所谓iterations就是完成一次epoch所需的batch个数。
-    for i, data in enumerate(train_loader):
+    for i, data in enumerate(train_loader):#这里的的data就是 batch中的x和y
         optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
         train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數
         batch_loss = loss(train_pred, data[1].cuda())  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
         batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
-        print(data[0].cuda().grad)
+        print(str(i))
         optimizer.step()  # 以 optimizer 用 gradient 更新參數值
 
-        train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())
+        train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
         train_loss += batch_loss.item()
 
     model.eval()
