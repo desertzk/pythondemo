@@ -3,7 +3,7 @@ from numpy import *
 import sys;  
 
 from keras.models import Model
-from keras.layers import Input
+from keras.layers import Input,LSTM
 from keras.layers.merge import Multiply
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution1D, AveragePooling1D
@@ -45,11 +45,12 @@ def main():
     print("Building models")
     Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
     # 这代表80个5*5的卷积核吗
-    Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
+    Seq_deepCpf1_C1 = LSTM(80)(Seq_deepCpf1_Input_SEQ)
+    # Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
     # print(Seq_deepCpf1_C1.output_shape)
-    Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
+    # Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
     # Flatten 压平 变1维
-    Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
+    Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_C1)
     Seq_deepCpf1_DO1 = Dropout(0.3)(Seq_deepCpf1_F)
     # Dense 全连接层
     Seq_deepCpf1_D1 = Dense(80, activation='relu')(Seq_deepCpf1_DO1)
@@ -69,14 +70,14 @@ def main():
 
     # Seq_deepCpf1.compile(loss='mse', optimizer=keras.optimizers.sgd(learning_rate=0.005))
     ## 这样2和3 一共三行代码就实现了，所以比tensorflow简单多了
-    Seq_deepCpf1.fit(SEQ, indel_f, epochs=1500, verbose=2, shuffle=False)
-    print("--------------testing-------------------")
-    cost = Seq_deepCpf1.evaluate(test_SEQ, test_indel_f)
-    print("test cost:", cost)
+    # Seq_deepCpf1.fit(SEQ, indel_f, epochs=1500, verbose=2, shuffle=False)
+    # print("--------------testing-------------------")
+    # cost = Seq_deepCpf1.evaluate(test_SEQ, test_indel_f)
+    # print("test cost:", cost)
 
     # 4 训练模型
     print("----------------------training--------------------------")
-    for step in range(1500):
+    for step in range(500):
         cost = Seq_deepCpf1.train_on_batch(SEQ, indel_f)
         print("train cost:", cost)
         # cost = Seq_deepCpf1.fit(SEQ, indel_f, epochs=1, batch_size=1000, verbose=2, shuffle=False)
