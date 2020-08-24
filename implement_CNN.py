@@ -259,6 +259,7 @@ def create_mask_from_window(x):
 
 
 np.random.seed(1)
+# training examples, height,weight,channel
 A_prev = np.random.randn(10,4,4,3)
 # filter, filter, n_Channel_prev, n_Channel
 W = np.random.randn(2,2,3,8)
