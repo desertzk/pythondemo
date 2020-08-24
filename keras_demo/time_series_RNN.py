@@ -76,7 +76,7 @@ def lstm_for_regression():
 
 
 
-lstm_for_regression()
+# lstm_for_regression()
 
 
 def lstm_for_regression_window_method():
@@ -142,6 +142,10 @@ def lstm_for_regression_window_method():
 	plt.plot(trainPredictPlot)
 	plt.plot(testPredictPlot)
 	plt.show()
+
+
+lstm_for_regression_window_method()
+
 
 
 
@@ -217,6 +221,8 @@ def lstm_for_regression_time_step():
 	plt.plot(trainPredictPlot)
 	plt.plot(testPredictPlot)
 	plt.show()
+
+lstm_for_regression_time_step()
 
 
 def lstm_memory_between_batch():
@@ -295,6 +301,9 @@ def lstm_memory_between_batch():
 	plt.plot(trainPredictPlot)
 	plt.plot(testPredictPlot)
 	plt.show()
+
+
+lstm_memory_between_batch()
 
 
 def Stacked_LSTMs_with_Memory_Between_Batches():
