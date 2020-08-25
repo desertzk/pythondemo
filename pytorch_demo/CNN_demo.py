@@ -63,7 +63,7 @@ test_transform = transforms.Compose([
 
 ndarray_data_transform = train_transform(train_x[0]).numpy()
 # 这里可能不能用reshape转
-ndarray_data_transform=np.reshape(ndarray_data_transform,(128,128,3))
+ndarray_data_transform = np.transpose(ndarray_data_transform, (2, 1, 0))
 cv2.imshow('image', ndarray_data_transform)
 cv2.waitKey(0)
 cv2.destroyAllWindows()

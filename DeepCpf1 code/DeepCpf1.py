@@ -34,7 +34,7 @@ def test_conv():
     print("Building models")
     Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
     # 这代表80个5*5的卷积核吗
-    Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
+    Seq_deepCpf1_C1 = Convolution1D(80, 5)(Seq_deepCpf1_Input_SEQ)
 
     Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
     # Flatten 压平 变1维
@@ -61,7 +61,7 @@ def test_conv():
     # conv_output = func([numpy_input])  # numpy array
 
 
-test_conv()
+
 
 
 
@@ -299,5 +299,6 @@ def PREPROCESS_ONE_HOT(train_data):
 
 
 if __name__ == '__main__':
-        main()
+    test_conv()
+    main()
         
