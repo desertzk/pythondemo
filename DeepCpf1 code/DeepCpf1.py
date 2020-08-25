@@ -1,5 +1,5 @@
 import numpy as np
-from numpy import *
+from numpy import zeros
 import sys;  
 
 from keras.models import Model
@@ -8,6 +8,63 @@ from keras.layers.merge import Multiply
 from keras.layers.core import Dense, Dropout, Activation, Flatten
 from keras.layers.convolutional import Convolution1D, AveragePooling1D
 import pandas as pd
+import keras.backend as K
+
+def data_load():
+    train_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=0)
+    test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
+    use_data = train_data[0:14999]
+    new_header = test_data.iloc[0]
+    test_data = test_data[1:]
+    test_data.index = np.arange(0, len(test_data))
+    test_data.columns = new_header
+    bp34_col = use_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+    indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
+    SEQ = PREPROCESS_ONE_HOT(bp34_col)
+
+    test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+    test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
+    test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
+    return SEQ,indel_f,test_SEQ,test_indel_f
+
+
+def test_conv():
+    train_x,train_y,test_x,test_y = data_load()
+
+    print("Building models")
+    Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
+    # 这代表80个5*5的卷积核吗
+    Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
+
+    Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
+    # Flatten 压平 变1维
+    Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
+    Seq_deepCpf1_DO1 = Dropout(0.3)(Seq_deepCpf1_F)
+    # Dense 全连接层
+    Seq_deepCpf1_D1 = Dense(80, activation='relu')(Seq_deepCpf1_DO1)
+    Seq_deepCpf1_DO2 = Dropout(0.3)(Seq_deepCpf1_D1)
+    Seq_deepCpf1_D2 = Dense(40, activation='relu')(Seq_deepCpf1_DO2)
+    Seq_deepCpf1_DO3 = Dropout(0.3)(Seq_deepCpf1_D2)
+    Seq_deepCpf1_D3 = Dense(40, activation='relu')(Seq_deepCpf1_DO3)
+    Seq_deepCpf1_DO4 = Dropout(0.3)(Seq_deepCpf1_D3)
+    Seq_deepCpf1_Output = Dense(1, activation='linear')(Seq_deepCpf1_DO4)
+    Seq_deepCpf1 = Model(inputs=[Seq_deepCpf1_Input_SEQ], outputs=[Seq_deepCpf1_Output])
+
+    # with a Sequential model
+    get_1_layer_output = K.function([Seq_deepCpf1.layers[0].input],
+                                      [Seq_deepCpf1.layers[1].output])
+    layer_output = get_1_layer_output([train_x])[0]
+    print(layer_output)
+
+    # Seq_deepCpf1.layers[0].output
+    # func = K.function([Seq_deepCpf1.get_layer('input').input], model.get_layer('conv').output)
+    # conv_output = func([numpy_input])  # numpy array
+
+
+test_conv()
+
+
+
 
 
 def main():
@@ -38,7 +95,7 @@ def main():
     indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
     SEQ = PREPROCESS_ONE_HOT(bp34_col)
 
-    test_bp34=test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+    test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
     test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
     test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
 
@@ -46,7 +103,10 @@ def main():
     Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
     # 这代表80个5*5的卷积核吗
     Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
-    # print(Seq_deepCpf1_C1.output_shape)
+
+    conv_result = Seq_deepCpf1_C1.predict([test_SEQ])
+    print(conv_result)
+
     Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
     # Flatten 压平 变1维
     Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)

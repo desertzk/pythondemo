@@ -233,6 +233,8 @@ with torch.no_grad():
             prediction.append(y)
 
 
+print(prediction)
+
 #將結果寫入 csv 檔
 with open("predict.csv", 'w') as f:
     f.write('Id,Category\n')
