@@ -15,7 +15,7 @@ for index, row in zy_excel.iterrows():
     if row["公开价格"] ==-1:
         test_name = row["测试名称"]
         test_method = row["检测方法名称"]
-        p = r'.+-\d{4}'
+        p = r'\w+-\d{4}\s{1}'
         # gd = re.search(p, test_method).groupdict()
         fa = re.findall(p, test_method)
         strand = fa[0]
@@ -23,7 +23,7 @@ for index, row in zy_excel.iterrows():
         res1 = sh_single[sh_single.化合物 == test_name]
         if not res.empty and  not res1.empty:
             print(test_name + strand+ "  in")
-            zy_excel.at[index, row] = "380 + 100 * (N - 1)"
+            zy_excel.at[index, "公开价格"] = "380 + 100 * (N - 1)"
         else:
             print(test_name + strand+ " not in")
 
