@@ -103,10 +103,6 @@ def main():
     Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
     # 这代表80个5*5的卷积核吗
     Seq_deepCpf1_C1 = Convolution1D(80, 5, activation='relu')(Seq_deepCpf1_Input_SEQ)
-
-    conv_result = Seq_deepCpf1_C1.predict([test_SEQ])
-    print(conv_result)
-
     Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
     # Flatten 压平 变1维
     Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
