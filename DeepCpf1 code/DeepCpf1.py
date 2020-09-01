@@ -125,16 +125,16 @@ def main():
 
     # Seq_deepCpf1.compile(loss='mse', optimizer=keras.optimizers.sgd(learning_rate=0.005))
     ## 这样2和3 一共三行代码就实现了，所以比tensorflow简单多了
-    Seq_deepCpf1.fit(SEQ, indel_f, epochs=1500, verbose=2, shuffle=False)
-    print("--------------testing-------------------")
-    cost = Seq_deepCpf1.evaluate(test_SEQ, test_indel_f)
-    print("test cost:", cost)
+    # Seq_deepCpf1.fit(SEQ, indel_f, epochs=1500, verbose=2, shuffle=False)
+    # print("--------------testing-------------------")
+    # cost = Seq_deepCpf1.evaluate(test_SEQ, test_indel_f)
+    # print("test cost:", cost)
 
     # 4 训练模型
     print("----------------------training--------------------------")
-    for step in range(1500):
+    for step in range(500):
         cost = Seq_deepCpf1.train_on_batch(SEQ, indel_f)
-        print("train cost:", cost)
+        # print("train cost:", cost)
         # cost = Seq_deepCpf1.fit(SEQ, indel_f, epochs=1, batch_size=1000, verbose=2, shuffle=False)
 
         if step % 100 == 0:
@@ -295,6 +295,6 @@ def PREPROCESS_ONE_HOT(train_data):
 
 
 if __name__ == '__main__':
-    test_conv()
+    # test_conv()
     main()
         

@@ -1,6 +1,21 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
+from pyquery import PyQuery
+f = open("CRISPR RGEN Tools.html","r", encoding="utf-8")
+html = f.read() # Your HTML CODE
+pq = PyQuery(html)
+tag = pq('div#subtable table') # or     tag = pq('div.class')
+crRNA = pq('span.input-rgenseq').text()
+listcrrna = crRNA.join(',')
+# print(tag.text())
+print(str(crRNA))
+dfs = pd.read_html(str(tag))
+df = dfs[0]
+base = df.iloc[2]
+base.dropna()
+base.intersection(listcrrna)
 countries = ['G', 'A', 'A', 'C', 'A']
 bronzes = np.array([138, 17, 26, 19, 15])
 silvers = np.array([37, 123, 18, 78, 10])

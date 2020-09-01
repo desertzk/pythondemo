@@ -89,7 +89,7 @@ class ImgDataset(Dataset):
         else:
             return X
 
-batch_size = 81
+batch_size = 72
 train_set = ImgDataset(train_x, train_y, train_transform)
 val_set = ImgDataset(val_x, val_y, test_transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
@@ -164,7 +164,7 @@ for epoch in range(num_epoch):
         train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數
         batch_loss = loss(train_pred, data[1].cuda())  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
         batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
-        print(str(i))
+        # print(str(i))
         optimizer.step()  # 以 optimizer 用 gradient 更新參數值
 
         train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
@@ -173,7 +173,7 @@ for epoch in range(num_epoch):
     model.eval()
     with torch.no_grad():
         for i, data in enumerate(val_loader):
-            val_pred = model(data[0].cuda())
+            val_pred = model(data[0].cuda())  #data[0] 图片 data[1] 结果
             batch_loss = loss(val_pred, data[1].cuda())
 
             val_acc += np.sum(np.argmax(val_pred.cpu().data.numpy(), axis=1) == data[1].numpy())
@@ -194,7 +194,7 @@ train_val_loader = DataLoader(train_val_set, batch_size=batch_size, shuffle=True
 
 model_best = Classifier().cuda()
 loss = nn.CrossEntropyLoss() # 因為是 classification task，所以 loss 使用 CrossEntropyLoss
-optimizer = torch.optim.Adam(model_best.parameters(), lr=0.001) # optimizer 使用 Adam
+optimizer = torch.optim.Adam(model_best.parameters(), lr=0.002) # optimizer 使用 Adam
 num_epoch = 30
 
 for epoch in range(num_epoch):
