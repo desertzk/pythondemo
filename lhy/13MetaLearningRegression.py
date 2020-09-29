@@ -120,7 +120,7 @@ class Meta_learning_model():
             self.model.load_state_dict(init_weight)
         self.grad_buffer = 0
     def gen_models(self, num, check = True):
-        models = [net(init_weight=self.model).to(device) for i in range(num)]
+        models = [net(init_weight=self.model).to(device) for i in range(num)]  #用一开始设置好的model架构Linear(1,40)  Linear(40,40) Linear(40,1)生成
         return models
     def clear_buffer(self):
         print("Before grad", self.grad_buffer)
@@ -128,15 +128,19 @@ class Meta_learning_model():
 
 
 # 接下來就是生成訓練/測試資料，建立meta weightmeta weight的模型以及用來比較的model pretraining的模型
+# batch size 10 代表每一轮执行10个任务
 bsz = 10
-train_x, train_y, train_label = meta_task_data(task_num=50000*10*5)
+# 总共生成 50000*10 个任务 task
+train_x, train_y, train_label = meta_task_data(task_num=50000*10)
 train_x = torch.Tensor(train_x).unsqueeze(-1) # add one dim 从（50000,10) 变成 （50000,10,1)
-train_y = torch.Tensor(train_y).unsqueeze(-1)
+train_y = torch.Tensor(train_y).unsqueeze(-1) # y = 𝑎∗sin(𝑥+𝑏)   从（50000,10) 变成 （50000,10,1)
+# Dataset是一个包装类，用来将数据包装为Dataset类，然后传入DataLoader中，我们再使用DataLoader这个类来更加快捷的对数据进行操作。
+# DataLoader是一个比较重要的类，它为我们提供的常用操作有：batch_size(每个batch的大小), shuffle(是否进行shuffle操作), num_workers(加载数据的时候使用几个子进程)
 train_dataset = data.TensorDataset(train_x, train_y)
 train_loader = data.DataLoader(dataset=train_dataset, batch_size=bsz, shuffle=False)
 
 test_x, test_y, plot_x, plot_y, test_label = meta_task_data(task_num=1, n_sample = 10, plot=True)
-test_x = torch.Tensor(test_x).unsqueeze(-1) # add one dim
+test_x = torch.Tensor(test_x).unsqueeze(-1) # 1,10,1 add one dim
 test_y = torch.Tensor(test_y).unsqueeze(-1) # add one dim
 plot_x = torch.Tensor(plot_x).unsqueeze(-1) # add one dim
 test_dataset = data.TensorDataset(test_x, test_y)
@@ -164,7 +168,7 @@ backward是需要create_graph=True的，這樣計算第二步gradient的時候�
 epoch = 1
 for e in range(epoch):
     meta_model.model.train()
-    for x, y in tqdm(train_loader):
+    for x, y in tqdm(train_loader):  #这里就是一轮 一轮的数据量就是batch size 就是 10
         x = x.to(device)    #这里的x是 【10,10,1】   第一个是batch size 10   第二个 10个数据点吧
         y = y.to(device)    #这里的y是 【10,10,1】
         sub_models = meta_model.gen_models(bsz)  #一開始我們要先生成一群（这里是10个）sub weight(code裡面的sub models)
@@ -175,28 +179,29 @@ for e in range(epoch):
 
             # pretraining
             pretrain_optim.zero_grad()
-            y_tilde = pretrain(x[model_num][sample[:5], :]) #取出抽样中的前五个下标对应的 第model_num个sub model input x里的值
-            little_l = F.mse_loss(y_tilde, y[model_num][sample[:5], :])
+            y_tilde = pretrain(x[model_num][sample[:5], :]) #取出抽样中的前五个下标对应的 第model_num个sub model input x里的值  这里算出来的y_tilde是前向传播的值
+            little_l = F.mse_loss(y_tilde, y[model_num][sample[:5], :]) #loss
             little_l.backward()
-            pretrain_optim.step()
+            pretrain_optim.step()  #优化一步
             pretrain_optim.zero_grad()
             y_tilde = pretrain(x[model_num][sample[5:], :]) #取出抽样中的后五个下标对应的 第model_num个sub model input x里的值
             little_l = F.mse_loss(y_tilde, y[model_num][sample[5:], :])
             little_l.backward()  #反向传播
-            pretrain_optim.step()  #优化一步
+            pretrain_optim.step()  #优化第二步 这里做到二阶微分 用的是不同数据
 
             # meta learning
+            # sub weight計算第一步gradient與第二步gradient時使用各五筆不重複的資料點(因此使用[:5]與[5:]來取)
             y_tilde = sub_models[model_num](x[model_num][sample[:5], :])   #这里会调用前项传播
-            little_l = F.mse_loss(y_tilde, y[model_num][sample[:5], :])
+            little_l = F.mse_loss(y_tilde, y[model_num][sample[:5], :]) # loss
             # 計算第一次gradient並保留計算圖以接著計算更高階的gradient
             little_l.backward(create_graph=True)
-            sub_models[model_num].update(lr=1e-2, parent=meta_model.model)
+            sub_models[model_num].update(lr=1e-2, parent=meta_model.model)  #自己做更新参数 这里为什么要自己写update而不是用pytorch的step？
             # 先清空optimizer中計算的gradient值(避免累加)
             meta_optimizer.zero_grad()
 
             # 計算第二次(二階)的gradient，二階的原因來自第一次update時有計算過一次gradient了
             y_tilde = sub_models[model_num](x[model_num][sample[5:], :])
-            meta_l = meta_l + F.mse_loss(y_tilde, y[model_num][sample[5:], :]) #这里是meta learning每一个task累加？
+            meta_l = meta_l + F.mse_loss(y_tilde, y[model_num][sample[5:], :]) #这里是meta learning每一个task累加？ 相当于 task的loss
 
         meta_l = meta_l / bsz
         meta_l.backward()

@@ -99,6 +99,7 @@ def MAML(model, optimizer, x, n_way, k_shot, q_query, loss_fn, inner_train_steps
     criterion = loss_fn
     task_loss = []  # 這裡面之後會放入每個 task 的 loss
     task_acc = []  # 這裡面之後會放入每個 task 的 loss
+    # mate batch 32
     for meta_batch in x: # x [32,10,1,28,28] meta_batch [10,1,28,28]
         train_set = meta_batch[:n_way * k_shot]  # train_set 是我們拿來 update inner loop 參數的 data  [5,1,28,28]  取前5个
         val_set = meta_batch[n_way * k_shot:]  # val_set 是我們拿來 update outer loop 參數的 data   [5,1,28,28]  取后5个
@@ -111,9 +112,9 @@ def MAML(model, optimizer, x, n_way, k_shot, q_query, loss_fn, inner_train_steps
             # 所以我們還是用 for loop 來寫
             train_label = create_label(n_way, k_shot).cuda()
             logits = model.functional_forward(train_set, fast_weights)
-            loss = criterion(logits, train_label)
+            loss = criterion(logits, train_label)   #这里的loss 就是 一个task的loss
             grads = torch.autograd.grad(loss, fast_weights.values(),
-                                        create_graph=True)  # 這裡是要計算出 loss 對 θ 的微分 (∇loss)
+                                        create_graph=True)  # 這裡是要計算出 loss 對 θ 的微分 (∇loss) 相当于ppt Meta1 30页 φ0 到 θm（助教备注algorithm中的θ'）这一步
             fast_weights = OrderedDict((name, param - inner_lr * grad)
                                        for ((name, param), grad) in
                                        zip(fast_weights.items(), grads))  #手写gradient decent 這裡是用剛剛算出的 ∇loss 來 update θ 變成 θ'
@@ -128,10 +129,11 @@ def MAML(model, optimizer, x, n_way, k_shot, q_query, loss_fn, inner_train_steps
 
     model.train()
     optimizer.zero_grad()
-    meta_batch_loss = torch.stack(task_loss).mean()  # 我們要用一整個 batch 的 loss 來 update θ (不是 θ')
+    # 我們要用一整個 batch 的 loss 來 update θ (不是 θ') 把一个meta_batch task的loss平均一下然后做微分 这里是32个task loss的平均
+    meta_batch_loss = torch.stack(task_loss).mean()
     if train:
         meta_batch_loss.backward()
-        optimizer.step()
+        optimizer.step()              #这两句应该相当于第二次更新就是ppt Meta1   30页上从φ0 更新到 φ1
     task_acc = np.mean(task_acc)
     return meta_batch_loss, task_acc
 
@@ -195,6 +197,7 @@ test_iter = iter(test_loader)
 
 # 初始化 model 和 optimizer
 meta_model = Classifier(1, n_way).cuda()
+# meta_lr 这个就是out learning rate 相当于
 optimizer = torch.optim.Adam(meta_model.parameters(), lr = meta_lr)
 loss_fn = nn.CrossEntropyLoss().cuda()
 
