@@ -32,24 +32,26 @@ def test_conv():
     train_x,train_y,test_x,test_y = data_load()
 
     print("Building models")
-    Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4))
+    Seq_deepCpf1_Input_SEQ = Input(shape=(34, 4)) #(None, 34, 4)
     # 这代表80个5*5的卷积核吗
-    Seq_deepCpf1_C1 = Convolution1D(80, 5)(Seq_deepCpf1_Input_SEQ)
+    Seq_deepCpf1_C1 = Convolution1D(80, 5)(Seq_deepCpf1_Input_SEQ) #(None, 30, 80)
 
-    Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
+    Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1) #(None, 15, 80)
     # Flatten 压平 变1维
-    Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
-    Seq_deepCpf1_DO1 = Dropout(0.3)(Seq_deepCpf1_F)
+    Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)  #(None, 1200)
+    Seq_deepCpf1_DO1 = Dropout(0.3)(Seq_deepCpf1_F)  #(None, 1200)
     # Dense 全连接层
-    Seq_deepCpf1_D1 = Dense(80, activation='relu')(Seq_deepCpf1_DO1)
-    Seq_deepCpf1_DO2 = Dropout(0.3)(Seq_deepCpf1_D1)
-    Seq_deepCpf1_D2 = Dense(40, activation='relu')(Seq_deepCpf1_DO2)
-    Seq_deepCpf1_DO3 = Dropout(0.3)(Seq_deepCpf1_D2)
-    Seq_deepCpf1_D3 = Dense(40, activation='relu')(Seq_deepCpf1_DO3)
-    Seq_deepCpf1_DO4 = Dropout(0.3)(Seq_deepCpf1_D3)
-    Seq_deepCpf1_Output = Dense(1, activation='linear')(Seq_deepCpf1_DO4)
+    Seq_deepCpf1_D1 = Dense(80, activation='relu')(Seq_deepCpf1_DO1)  #(None, 80)
+    Seq_deepCpf1_DO2 = Dropout(0.3)(Seq_deepCpf1_D1) #(None, 80)
+    Seq_deepCpf1_D2 = Dense(40, activation='relu')(Seq_deepCpf1_DO2) #(None, 40)
+    Seq_deepCpf1_DO3 = Dropout(0.3)(Seq_deepCpf1_D2) #(None, 40)
+    Seq_deepCpf1_D3 = Dense(40, activation='relu')(Seq_deepCpf1_DO3) #(None, 40)
+    Seq_deepCpf1_DO4 = Dropout(0.3)(Seq_deepCpf1_D3) #(None, 40)
+    Seq_deepCpf1_Output = Dense(1, activation='linear')(Seq_deepCpf1_DO4) #(None, 1)
     Seq_deepCpf1 = Model(inputs=[Seq_deepCpf1_Input_SEQ], outputs=[Seq_deepCpf1_Output])
-
+    print(Seq_deepCpf1.summary())
+    for layer in Seq_deepCpf1.layers:
+        print(layer.output_shape)
     # with a Sequential model
     get_1_layer_output = K.function([Seq_deepCpf1.layers[0].input],
                                       [Seq_deepCpf1.layers[1].output])
@@ -116,11 +118,14 @@ def main():
     Seq_deepCpf1_DO4 = Dropout(0.3)(Seq_deepCpf1_D3)
     Seq_deepCpf1_Output = Dense(1, activation='linear')(Seq_deepCpf1_DO4)
     Seq_deepCpf1 = Model(inputs=[Seq_deepCpf1_Input_SEQ], outputs=[Seq_deepCpf1_Output])
+    print(Seq_deepCpf1.summary())
+    weights = Seq_deepCpf1.get_weights()
+    print(weights)
     import keras
     # 3 激活模型
     Seq_deepCpf1.compile(optimizer=keras.optimizers.Adam(lr=0.005, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0),
-                        loss='mean_squared_error')
-    # Seq_deepCpf1.fit(x=SEQ, y=indel_f,epochs=100)
+                        loss='mse')
+    Seq_deepCpf1.fit(x=SEQ, y=indel_f,epochs=50)
 
 
     # Seq_deepCpf1.compile(loss='mse', optimizer=keras.optimizers.sgd(learning_rate=0.005))
@@ -132,13 +137,15 @@ def main():
 
     # 4 训练模型
     print("----------------------training--------------------------")
-    for step in range(500):
-        cost = Seq_deepCpf1.train_on_batch(SEQ, indel_f)
-        # print("train cost:", cost)
-        # cost = Seq_deepCpf1.fit(SEQ, indel_f, epochs=1, batch_size=1000, verbose=2, shuffle=False)
-
-        if step % 100 == 0:
-            print("train cost:", cost)
+    # j =0
+    # for step in range(500):
+    #     cost = Seq_deepCpf1.train_on_batch(SEQ, indel_f)
+    #     j = j+1
+    #     print("j %d train cost:%f",j ,cost)
+    #     # cost = Seq_deepCpf1.fit(SEQ, indel_f, epochs=1, batch_size=1000, verbose=2, shuffle=False)
+    #
+    #     if step % 100 == 0:
+    #         print("train cost:", cost)
 
     # 5 检验模型
     print("--------------testing-------------------")

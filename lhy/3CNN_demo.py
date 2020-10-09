@@ -161,7 +161,7 @@ for epoch in range(num_epoch):
     # 所谓iterations就是完成一次epoch所需的batch个数。
     for i, data in enumerate(train_loader):#这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
         optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
-        train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數
+        train_pred = model(data[0].cuda())  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數  input (72,3,128,128)
         batch_loss = loss(train_pred, data[1].cuda())  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
         batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
         # print(str(i))

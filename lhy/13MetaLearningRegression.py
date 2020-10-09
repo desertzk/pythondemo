@@ -49,6 +49,10 @@ meta weight也應該是可以算gradient才對)，這邊我們需要重新定義
 '''
 
 class MetaLinear(nn.Module):
+    '''
+    拿一样的初始化参数去各个task上训练
+，最终学出来的model是不一样的
+    '''
     def __init__(self, init_layer = None):
         super(MetaLinear, self).__init__()
         if type(init_layer) != type(None):
@@ -182,7 +186,7 @@ for e in range(epoch):
             y_tilde = pretrain(x[model_num][sample[:5], :]) #取出抽样中的前五个下标对应的 第model_num个sub model input x里的值  这里算出来的y_tilde是前向传播的值
             little_l = F.mse_loss(y_tilde, y[model_num][sample[:5], :]) #loss
             little_l.backward()
-            pretrain_optim.step()  #优化一步
+            pretrain_optim.step()  #优化一步 只有用了optimizer.step()，模型才会更新
             pretrain_optim.zero_grad()
             y_tilde = pretrain(x[model_num][sample[5:], :]) #取出抽样中的后五个下标对应的 第model_num个sub model input x里的值
             little_l = F.mse_loss(y_tilde, y[model_num][sample[5:], :])
@@ -204,7 +208,7 @@ for e in range(epoch):
             meta_l = meta_l + F.mse_loss(y_tilde, y[model_num][sample[5:], :]) #这里是meta learning每一个task累加？ 相当于 task的loss
 
         meta_l = meta_l / bsz
-        meta_l.backward()
+        meta_l.backward() #backward代表计算gradient
         meta_optimizer.step()
         meta_optimizer.zero_grad()
 

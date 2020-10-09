@@ -12,7 +12,7 @@ input = np.asarray([
     ]]
     ])
 print(input.shape)
-
+# 維度互換
 input_mat = np.transpose(input,(0,3,2,1))
 print(input_mat.shape)
 inp = Input(shape=(3,3,1))
