@@ -133,8 +133,8 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
-device ="cpu"
-batch_size = 15000
+device ="cuda"
+batch_size = 1000
 train_x, train_y, test_x, test_y = data_load()
 # 维度互换
 train_x_for_torch = np.transpose(train_x,(0,2,1))
@@ -157,22 +157,17 @@ def evaluate(model, loss_fn, dataloader, device):
 
 
 def main():
+    # for param in model.parameters():
+    #     print(param.data)
 
-
-    model = Regression()
-    for param in model.parameters():
-        print(param.data)
+    model = Regression().to(device)
     loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-    num_epoch = 500
-    j = 0
+    num_epoch = 50
+
     # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
     for epoch in range(num_epoch):
-        epoch_start_time = time.time()
-        train_acc = 0.0
         train_loss = 0.0
-        val_acc = 0.0
-        val_loss = 0.0
         count = int(len(train_x)/batch_size)+1
         model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
         # 所谓iterations就是完成一次epoch所需的batch个数。
@@ -190,10 +185,10 @@ def main():
             # train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
             train_loss += batch_loss.item()
 
-        j = j + 1
-        print("train_loss:", j ,train_loss/count)
 
-        print(evaluate(model,loss,val_loader,device))
+        print("Epoch :", epoch ,"train_loss:",train_loss/count)
+
+        # print(evaluate(model,loss,val_loader,device))
         # model.eval()
         # with torch.no_grad():
         #     for i, data in enumerate(val_loader):

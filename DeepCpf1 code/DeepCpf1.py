@@ -120,12 +120,12 @@ def main():
     Seq_deepCpf1 = Model(inputs=[Seq_deepCpf1_Input_SEQ], outputs=[Seq_deepCpf1_Output])
     print(Seq_deepCpf1.summary())
     weights = Seq_deepCpf1.get_weights()
-    print(weights)
+    # print(weights)
     import keras
     # 3 激活模型
     Seq_deepCpf1.compile(optimizer=keras.optimizers.Adam(lr=0.005, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=0.0),
                         loss='mse')
-    Seq_deepCpf1.fit(x=SEQ, y=indel_f,epochs=50)
+    Seq_deepCpf1.fit(x=SEQ, y=indel_f,batch_size=1000,epochs=50)
 
 
     # Seq_deepCpf1.compile(loss='mse', optimizer=keras.optimizers.sgd(learning_rate=0.005))
