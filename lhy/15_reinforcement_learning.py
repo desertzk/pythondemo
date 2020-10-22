@@ -119,7 +119,7 @@ while not done:
     display.clear_output(wait=True)
 
 
-
+print("final reward:"+str(reward))
 '''
 ## Policy Gradient
 
@@ -132,7 +132,7 @@ class PolicyGradientNetwork(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(8, 16)
         self.fc2 = nn.Linear(16, 16)
-        self.fc3 = nn.Linear(16, 4)
+        self.fc3 = nn.Linear(16, 4)     #最后输出的4dim是4个动作的概率
 
     def forward(self, state):
         hid = torch.tanh(self.fc1(state))
@@ -163,8 +163,9 @@ class PolicyGradientAgent():
 
     def sample(self, state):
         action_prob = self.network(torch.FloatTensor(state))
+        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
         action_dist = Categorical(action_prob)
-        action = action_dist.sample()
+        action = action_dist.sample()   # 这里就是根据概率进行采样
         log_prob = action_dist.log_prob(action)
         return action.item(), log_prob
 
@@ -181,7 +182,7 @@ agent = PolicyGradientAgent(network)
 
 agent.network.train()  # 訓練前，先確保 network 處在 training 模式
 EPISODE_PER_BATCH = 5  # 每蒐集 5 個 episodes 更新一次 agent
-NUM_BATCH = 400  # 總共更新 400 次
+NUM_BATCH = 600  # 總共更新 400 次
 
 avg_total_rewards, avg_final_rewards = [], []
 
@@ -207,7 +208,12 @@ for batch in range(NUM_BATCH):
             total_step += 1
 
             if done:
+                if reward > -200:
+                    img.set_data(env.render(mode='rgb_array'))
+                    display.display(plt.gcf())
+                    display.clear_output(wait=True)
                 final_rewards.append(reward)
+
                 total_rewards.append(total_reward)
                 rewards.append(np.full(total_step, total_reward))  # 設定同一個 episode 每個 action 的 reward 都是 total reward
                 break
@@ -219,6 +225,8 @@ for batch in range(NUM_BATCH):
     avg_final_rewards.append(avg_final_reward)
     print("Batch {},\tTotal Reward = {:.1f},\tFinal Reward = {:.1f}".format(batch + 1, avg_total_reward,
                                                                             avg_final_reward))
+
+
 
     # 更新網路
     rewards = np.concatenate(rewards, axis=0)
