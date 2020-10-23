@@ -9,6 +9,8 @@ import pandas as pd
 from numpy import zeros
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+import torch.optim as optim
+from torch.distributions import Categorical
 import time
 from matplotlib import pyplot as plt
 
@@ -94,7 +96,8 @@ class Regression(nn.Module):
         # Seq_deepCpf1_DO4 = Dropout(0.3)(Seq_deepCpf1_D3)
         out = self.linear40_1(out_dropout40_40)
         # Seq_deepCpf1_Output = Dense(1, activation='linear')(Seq_deepCpf1_DO4)
-        return out
+        result = out.squeeze(1)
+        return result
         # print(outconv1d.shape)
         # print(outact.shape)
         # print(outavg1d.shape)
@@ -113,7 +116,61 @@ class Regression(nn.Module):
 
 
 
+# 这里有个问题是state怎么搞
+# 我的想法是batch里每个输入的atcg碱基作为state
+'''
+## Policy Gradient
 
+現在來搭建一個簡單的 policy network。
+我們預設模型的輸入是 8-dim 的 observation，輸出則是離散的四個動作之一：
+'''
+class PolicyGradientNetwork(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(8, 16)
+        self.fc2 = nn.Linear(16, 16)
+        self.fc3 = nn.Linear(16, 4)     #最后输出的4dim是4个动作的概率
+
+    def forward(self, state):
+        hid = torch.tanh(self.fc1(state))
+        hid = torch.tanh(self.fc2(hid))
+        result = self.fc3(hid)
+        return result
+
+
+'''
+再來，搭建一個簡單的 agent，並搭配上方的 policy network 來採取行動。
+這個 agent 能做到以下幾件事：
+- `learn()`：從記下來的 log probabilities 及 rewards 來更新 policy network。
+- `sample()`：從 environment 得到 observation 之後，利用 policy network 得出應該採取的行動。
+而此函式除了回傳抽樣出來的 action，也會回傳此次抽樣的 log probabilities。
+'''
+
+class PolicyGradientAgent():
+
+    def __init__(self, network):
+        self.network = network
+        self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
+
+    def learn(self, log_probs, rewards):
+        loss = (-log_probs * rewards).sum()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def sample(self, state):
+        action_prob = self.network(torch.FloatTensor(state))
+        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
+        action_dist = Categorical(action_prob)
+        action = action_dist.sample()   # 这里就是根据概率进行采样
+        log_prob = action_dist.log_prob(action)
+        return action.item(), log_prob
+
+# 最後，建立一個 network 和 agent，就可以開始進行訓練了。
+network = PolicyGradientNetwork()
+agent = PolicyGradientAgent(network)
 
 
 class RNADataset(Dataset):
@@ -134,15 +191,17 @@ class RNADataset(Dataset):
         return X, Y
 
 device ="cuda"
-batch_size = 1000
+batch_size = 3000
 train_x, train_y, test_x, test_y = data_load()
 # 维度互换
 train_x_for_torch = np.transpose(train_x,(0,2,1))
 test_x__for_torch = np.transpose(test_x,(0,2,1))
 train_set = RNADataset(train_x_for_torch,train_y)
 val_set = RNADataset(test_x__for_torch,test_y)
-train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=False)
 val_loader = DataLoader(val_set, batch_size=len(val_set), shuffle=False)
+
+
 
 def evaluate(model, loss_fn, dataloader, device):
     model.eval()
@@ -156,6 +215,67 @@ def evaluate(model, loss_fn, dataloader, device):
     return epoch_loss/len(dataloader)
 
 
+def reinforcementlearning_main():
+    '''
+    ## 訓練 Agent
+
+    現在我們開始訓練 agent。
+    透過讓 agent 和 environment 互動，我們記住每一組對應的 log probabilities 及 reward，並在成功登陸或者不幸墜毀後，回放這些「記憶」來訓練 policy network。
+    '''
+
+    agent.network.train()  # 訓練前，先確保 network 處在 training 模式
+    EPISODE_PER_BATCH = 5  # 每蒐集 5 個 episodes 更新一次 agent
+    NUM_BATCH = 600  # 總共更新 400 次
+
+    avg_total_rewards, avg_final_rewards = [], []
+
+    for batch in range(NUM_BATCH):
+
+        log_probs, rewards = [], []
+        total_rewards, final_rewards = [], []
+
+        # 蒐集訓練資料
+        for episode in range(EPISODE_PER_BATCH):
+
+            state = env.reset()
+            total_reward, total_step = 0, 0
+
+            while True:
+
+                action, log_prob = agent.sample(state)
+                next_state, reward, done, _ = env.step(action)
+
+                log_probs.append(log_prob)
+                state = next_state
+                total_reward += reward
+                total_step += 1
+
+                if done:
+                    if reward > -200:
+                        img.set_data(env.render(mode='rgb_array'))
+                        display.display(plt.gcf())
+                        display.clear_output(wait=True)
+                    final_rewards.append(reward)
+
+                    total_rewards.append(total_reward)
+                    rewards.append(
+                        np.full(total_step, total_reward))  # 設定同一個 episode 每個 action 的 reward 都是 total reward
+                    break
+
+        # 紀錄訓練過程
+        avg_total_reward = sum(total_rewards) / len(total_rewards)
+        avg_final_reward = sum(final_rewards) / len(final_rewards)
+        avg_total_rewards.append(avg_total_reward)
+        avg_final_rewards.append(avg_final_reward)
+        print("Batch {},\tTotal Reward = {:.1f},\tFinal Reward = {:.1f}".format(batch + 1, avg_total_reward,
+                                                                                avg_final_reward))
+
+        # 更新網路
+        rewards = np.concatenate(rewards, axis=0)
+        rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-9)  # 將 reward 正規標準化
+        agent.learn(torch.stack(log_probs), torch.from_numpy(rewards))
+
+
 def main():
     # for param in model.parameters():
     #     print(param.data)
@@ -163,7 +283,7 @@ def main():
     model = Regression().to(device)
     loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-    num_epoch = 50
+    num_epoch = 100
 
     # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
     for epoch in range(num_epoch):
@@ -188,7 +308,8 @@ def main():
 
         print("Epoch :", epoch ,"train_loss:",train_loss/count)
 
-        # print(evaluate(model,loss,val_loader,device))
+        # evaluate()
+        print(evaluate(model,loss,val_loader,device))
         # model.eval()
         # with torch.no_grad():
         #     for i, data in enumerate(val_loader):
