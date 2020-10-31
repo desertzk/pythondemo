@@ -135,7 +135,7 @@ class Meta_learning_model():
 # batch size 10 代表每一轮执行10个任务
 bsz = 10
 # 总共生成 50000*10 个任务 task
-train_x, train_y, train_label = meta_task_data(task_num=50000*10)
+train_x, train_y, train_label = meta_task_data(task_num=5000*10)
 train_x = torch.Tensor(train_x).unsqueeze(-1) # add one dim 从（50000,10) 变成 （50000,10,1)
 train_y = torch.Tensor(train_y).unsqueeze(-1) # y = 𝑎∗sin(𝑥+𝑏)   从（50000,10) 变成 （50000,10,1)
 # Dataset是一个包装类，用来将数据包装为Dataset类，然后传入DataLoader中，我们再使用DataLoader这个类来更加快捷的对数据进行操作。
@@ -175,7 +175,7 @@ for e in range(epoch):
     for x, y in tqdm(train_loader):  #这里就是一轮 一轮的数据量就是batch size 就是 10
         x = x.to(device)    #这里的x是 【10,10,1】   第一个是batch size 10   第二个 10个数据点吧
         y = y.to(device)    #这里的y是 【10,10,1】
-        sub_models = meta_model.gen_models(bsz)  #一開始我們要先生成一群（这里是10个）sub weight(code裡面的sub models)
+        sub_models = meta_model.gen_models(bsz)  #一開始我們要先生成一群（这里是10个）sub weight(code裡面的sub models) 生成十个net 初始参数都是 meta model的初始化参数
 
         meta_l = 0
         for model_num in range(len(sub_models)):
@@ -228,7 +228,7 @@ ax.plot(plot_x1, plot_y[0].squeeze())
 test_model.train()
 pretrain.train()
 
-for epoch in range(1):
+for epoch in range(3):
     for x, y in test_loader:
         y_tilde = test_model(x[0])
         little_l = F.mse_loss(y_tilde, y[0])
@@ -237,7 +237,7 @@ for epoch in range(1):
         test_optim.step()
         print("(meta)))Loss: ", little_l.item())
 
-for epoch in range(1):
+for epoch in range(3):
     for x, y in test_loader:
         y_tilde = pretrain(x[0])
         little_l = F.mse_loss(y_tilde, y[0])

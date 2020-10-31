@@ -14,7 +14,9 @@ from torch.distributions import Categorical
 import time
 import math
 from matplotlib import pyplot as plt
+import torch.nn.functional as F
 
+device ="cuda"
 
 def PREPROCESS_ONE_HOT(train_data):
     data_n = len(train_data)
@@ -56,16 +58,26 @@ def data_load():
 
 
 class Regression(nn.Module):
-    def __init__(self):
+    #(None,34,4)
+    def __init__(self,params):
         super(Regression, self).__init__()
-        self.conv1d = nn.Conv1d(4, 80, 5, 1) # 进去4通道出来80通道 (30,80)
+        # 这里有1200 4个小数
+        conv1d_out_channels = params.get("conv1d_out_channels").item()
+        conv1d_kernel_size = params.get("conv1d_kernel_size").item()
+        linear1200_80_out_features = params.get("linear1200_80_out_features").item()
+        linear80_40_out_features= params.get("linear80_40_out_features").item()
+        print("model conv1d_out_channels:",conv1d_out_channels," conv1d_kernel_size:",conv1d_kernel_size," linear1200_80_out_features:",linear1200_80_out_features
+              ,"linear80_40_out_features:",linear80_40_out_features)
+        self.conv1d = nn.Conv1d(4, conv1d_out_channels, conv1d_kernel_size, 1) # 进去4通道出来80通道 (30,80)
         self.relu = nn.ReLU()
         self.avg1d = nn.AvgPool1d(2) # size of window 2  (15,80)
         self.flatten = nn.Flatten()
         self.dropout = nn.Dropout(p=0.3)
-        self.linear1200_80 = nn.Linear(80 * 15, 80)
-        self.linear80_40 = nn.Linear(80, 40)  #(None, 40)
-        self.linear40_40 = nn.Linear(40, 40)  # (None, 40)
+        # conv1d_kernel_size这里要注意这个conv1d_kernel_size要是奇数不然会有小数点
+        input = int((34-conv1d_kernel_size+1)/2)
+        self.linear1200_80 = nn.Linear(conv1d_out_channels * input, linear1200_80_out_features)
+        self.linear80_40 = nn.Linear(linear1200_80_out_features, linear80_40_out_features)  #(None, 40)
+        self.linear40_40 = nn.Linear(linear80_40_out_features, 40)  # (None, 40)
         self.linear40_1 = nn.Linear(40, 1)  # (None, 40)
 
 
@@ -127,17 +139,32 @@ class Regression(nn.Module):
 '''
 class PolicyGradientNetwork(nn.Module):
 
-    def __init__(self):
+    def __init__(self,state):
         super().__init__()
-        self.fc1 = nn.Linear(8, 16)
-        self.fc2 = nn.Linear(16, 16)
+        self.flatten = nn.Flatten()
+        self.num_param = 4
+        state_size = 1
+        for i in state:
+            state_size = state_size * i
+        self.fc1 = nn.Linear(state_size, 64)   # 4*34  64
+        self.fc2 = nn.Linear(64, 16)
         self.fc3 = nn.Linear(16, 4)     #最后输出的4dim是4个动作的概率
 
     def forward(self, state):
-        hid = torch.tanh(self.fc1(state))
-        hid = torch.tanh(self.fc2(hid))
-        result = self.fc3(hid)
-        return result
+        flt = self.flatten(state)
+        result_list = []
+        for i in range(self.num_param):
+            hid = torch.tanh(self.fc1(flt))
+            hid = torch.tanh(self.fc2(hid))
+            hid3 = self.fc3(hid)
+            result = F.softmax(hid3, dim=-1)
+            action_prob = torch.sum(result,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
+            #
+            result_list.append(action_prob)
+
+        outputs = torch.stack(result_list).squeeze(1)
+
+        return outputs
 
 
 '''
@@ -152,26 +179,53 @@ class PolicyGradientAgent():
 
     def __init__(self, network):
         self.network = network
-        self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
+        self.optimizer = optim.Adam(self.network.parameters(), lr=0.001)
+        self.conv1d_out_channels_list = [i for i in range(100) if i>9]
+        self.conv1d_kernel_size_list = [i for i in range(15) if i>0]
+        self.linear1200_80_out_features_list = [i for i in range(1000) if i>9]
+        self.linear80_40_out_features_list = [i for i in range(100) if i>9]
 
-    def learn(self, log_probs, rewards):
-        loss = (-log_probs * rewards).sum()
+    def learn(self, rewards,log_prob):
+        # 损失函数要是一个式子
+        loss = -torch.mean(log_prob)*rewards
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
     def sample(self, state):
-        action_prob = self.network(torch.FloatTensor(state))
-        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
-        action_dist = Categorical(action_prob)
-        action = action_dist.sample()   # 这里就是根据概率进行采样
-        log_prob = action_dist.log_prob(action)
-        return action.item(), log_prob
+        item_action_prob = self.network(torch.FloatTensor(state))
+        # action_prob = torch.sum(item_action_prob,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
+        action_dist = Categorical(item_action_prob)
+        action_index = action_dist.sample() #.unsqueeze(1)  这里就是根据概率进行采样
+        log_prob = action_dist.log_prob(action_index)
+        # log_prob = action_dist.log_prob(action_index)
+        # mask = one_hot(action_index, num_classes=self.ACTION_SPACE)
+        #
+        # episode_log_probs = torch.sum(mask.float() * log_softmax(episode_logits, dim=1), dim=1)
+        #
+        # # append the action to the episode action list to obtain the trajectory
+        # # we need to store the actions and logits so we could calculate the gradient of the performance
+        # # episode_actions = torch.cat((episode_actions, action_index), dim=0)
+        #
+        # # Get action actions
+        # action_space = torch.tensor([[3, 5, 7], [8, 16, 32], [3, 5, 7], [8, 16, 32]], device=self.DEVICE)
+        # action = torch.gather(action_space, 1, action_index).squeeze(1)
 
-# 最後，建立一個 network 和 agent，就可以開始進行訓練了。
-network = PolicyGradientNetwork()
-agent = PolicyGradientAgent(network)
+        # 这里是暂时先放4个
+        # action_space = torch.tensor([self.conv1d_out_channels_list, self.conv1d_kernel_size_list, self.linear1200_80_out_features_list, self.linear80_40_out_features_list], device=device)
+        action_space = torch.tensor([[80,90,100,110], [7,3,5,1], [70,40,80,60], [40,20,35,16]])
+        action = torch.gather(action_space, 1, action_index.unsqueeze(1)).squeeze(1)
+        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
+        regression_params = {
+            "conv1d_out_channels":action[0],
+            "conv1d_kernel_size":action[1],
+            "linear1200_80_out_features":action[2],
+            "linear80_40_out_features":action[3],
+        }
+        return regression_params,log_prob
+
+
 
 
 class RNADataset(Dataset):
@@ -204,20 +258,20 @@ class Task():
 
 
     def get_state(self):
-        all_train_data = self.train_loader.dataset[:]
-        return all_train_data
+        all_train_data_x,all_train_data_y = next(iter(self.train_loader))
+        return all_train_data_x
 
 
-    def train(self):
-        model = Regression().to(device)
+    def train(self,model,train_loader):
+
         loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-        num_epoch = 150
+        num_epoch = 50
 
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
         for epoch in range(num_epoch):
             train_loss = 0.0
-            count = math.ceil(len(train_x) / batch_size)
+            count = math.ceil(len(train_loader.dataset.indices) / train_loader.batch_size)
             model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
             # 所谓iterations就是完成一次epoch所需的batch个数。
             for i, data in enumerate(train_loader):  # 这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
@@ -236,9 +290,11 @@ class Task():
                 # train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
                 train_loss += batch_loss.item()
 
-            print("Epoch :", epoch, "train_loss:", train_loss / count)
+            epoch_loss = train_loss / count
+            # print("Epoch :", epoch, "train_loss:", epoch_loss)
 
-device ="cuda"
+        return epoch_loss
+
 
 train_x, train_y, test_x, test_y = data_load()
 # 维度互换
@@ -330,21 +386,33 @@ def reinforcementlearning_main():
     現在我們開始訓練 agent。
     透過讓 agent 和 environment 互動，我們記住每一組對應的 log probabilities 及 reward，並在成功登陸或者不幸墜毀後，回放這些「記憶」來訓練 policy network。
     '''
+    total_train_size = 12000
+    EPISODE_PER_BATCH = 10  # 每蒐集 5 個 episodes 更新一次 agent
+    task_size = EPISODE_PER_BATCH
+    task_data_size = int(total_train_size/task_size)
+    task_data_train = [task_data_size for i in range(task_size)]
 
+    train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
+
+    train_set_list = torch.utils.data.random_split(train_set,
+                                                   task_data_train)
+
+    val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
+
+    # 最後，建立一個 network 和 agent，就可以開始進行訓練了。
+    tp_size = train_x_for_torch[0].shape
+    # tp_size = tp_size + (task_data_size,)
+    network = PolicyGradientNetwork(tp_size)
+    agent = PolicyGradientAgent(network)
 
     agent.network.train()  # 訓練前，先確保 network 處在 training 模式
-    EPISODE_PER_BATCH = 10  # 每蒐集 5 個 episodes 更新一次 agent
+
     NUM_BATCH = 600  # 總共更新 400 次
 
     avg_total_rewards, avg_final_rewards = [], []
 
     for batch in range(NUM_BATCH):
-        train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
 
-        train_set_list = torch.utils.data.random_split(train_set,
-                                                       [1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200])
-
-        val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
 
         task_list = []
         for i in range(EPISODE_PER_BATCH):
@@ -360,43 +428,46 @@ def reinforcementlearning_main():
             state = task.get_state()
             total_reward, total_step = 0, 0
 
-            while True:
-                action, log_prob = agent.sample(state)
-                action_loss = task.train()
-                #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
-                # reward
-                # action, log_prob = agent.sample(state)
-                # next_state, reward, done, _ = env.step(action)
 
-                log_probs.append(log_prob)
-                state = next_state
-                total_reward += reward
-                total_step += 1
+            actionparam,log_prob = agent.sample(state)
+            model = Regression(actionparam).to(device)
+            tr_load = DataLoader(train_set_list[episode], batch_size=128, shuffle=False)
+            action_loss = task.train(model,tr_load)
+            #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
+            reward = 300 - action_loss
+            print("reward:",reward," action_loss",action_loss)
+            agent.learn(reward,log_prob)
+            # action, log_prob = agent.sample(state)
+            # next_state, reward, done, _ = env.step(action)
+            # log_probs.append(log_prob)
+            # state = next_state
+            # total_reward += reward
+            # total_step += 1
 
-                if done:
-                    if reward > -200:
-                        img.set_data(env.render(mode='rgb_array'))
-                        display.display(plt.gcf())
-                        display.clear_output(wait=True)
-                    final_rewards.append(reward)
-
-                    total_rewards.append(total_reward)
-                    rewards.append(
-                        np.full(total_step, total_reward))  # 設定同一個 episode 每個 action 的 reward 都是 total reward
-                    break
+            # if done:
+            #     if reward > -200:
+            #         img.set_data(env.render(mode='rgb_array'))
+            #         display.display(plt.gcf())
+            #         display.clear_output(wait=True)
+            #     final_rewards.append(reward)
+            #
+            #     total_rewards.append(total_reward)
+            #     rewards.append(
+            #         np.full(total_step, total_reward))  # 設定同一個 episode 每個 action 的 reward 都是 total reward
+            #     break
 
         # 紀錄訓練過程
-        avg_total_reward = sum(total_rewards) / len(total_rewards)
-        avg_final_reward = sum(final_rewards) / len(final_rewards)
-        avg_total_rewards.append(avg_total_reward)
-        avg_final_rewards.append(avg_final_reward)
-        print("Batch {},\tTotal Reward = {:.1f},\tFinal Reward = {:.1f}".format(batch + 1, avg_total_reward,
-                                                                                avg_final_reward))
-
-        # 更新網路
-        rewards = np.concatenate(rewards, axis=0)
-        rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-9)  # 將 reward 正規標準化
-        agent.learn(torch.stack(log_probs), torch.from_numpy(rewards))
+        # avg_total_reward = sum(total_rewards) / len(total_rewards)
+        # avg_final_reward = sum(final_rewards) / len(final_rewards)
+        # avg_total_rewards.append(avg_total_reward)
+        # avg_final_rewards.append(avg_final_reward)
+        # print("Batch {},\tTotal Reward = {:.1f},\tFinal Reward = {:.1f}".format(batch + 1, avg_total_reward,
+        #                                                                         avg_final_reward))
+        #
+        # # 更新網路
+        # rewards = np.concatenate(rewards, axis=0)
+        # rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-9)  # 將 reward 正規標準化
+        # agent.learn(torch.stack(log_probs), torch.from_numpy(rewards))
 
 
 def main():
@@ -408,12 +479,11 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
     num_epoch = 150
 
-    # train(model, loss, train_loader, num_epoch, optimizer, device)
-    # print(evaluate(model,loss,test_loader,device))
+    train(model, loss, train_loader, num_epoch, optimizer, device)
+    print(evaluate(model,loss,test_loader,device))
     # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
     for epoch in range(num_epoch):
         train_one_epoch(model, loss, train_loader, num_epoch, optimizer, device)
-        print(evaluate(model, loss, test_loader, device))
     #     train_loss = 0.0
     #     count = math.ceil(len(train_x)/batch_size)
     #     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
@@ -487,6 +557,6 @@ def PREPROCESS(lines):
 
 
 if __name__ == '__main__':
-    main()
-    # reinforcementlearning_main()
+    # main()
+    reinforcementlearning_main()
 
