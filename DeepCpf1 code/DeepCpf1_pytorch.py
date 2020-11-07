@@ -246,7 +246,7 @@ train_x_for_torch = np.transpose(train_x,(0,2,1))
 test_x__for_torch = np.transpose(test_x,(0,2,1))
 all_train_set = RNADataset(train_x_for_torch,train_y)
 test_set = RNADataset(test_x__for_torch,test_y)
-batch_size = len(all_train_set)
+batch_size = 256
 
 
 
@@ -323,80 +323,6 @@ def train(model, loss_fn, dataloader,num_epoch,optimizer, device):
 
         print("Epoch :", epoch ,"train_loss:",train_loss/count)
 
-def reinforcementlearning_main():
-    '''
-    ## 訓練 Agent
-
-    現在我們開始訓練 agent。
-    透過讓 agent 和 environment 互動，我們記住每一組對應的 log probabilities 及 reward，並在成功登陸或者不幸墜毀後，回放這些「記憶」來訓練 policy network。
-    '''
-
-
-    agent.network.train()  # 訓練前，先確保 network 處在 training 模式
-    EPISODE_PER_BATCH = 10  # 每蒐集 5 個 episodes 更新一次 agent
-    NUM_BATCH = 600  # 總共更新 400 次
-
-    avg_total_rewards, avg_final_rewards = [], []
-
-    for batch in range(NUM_BATCH):
-        train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-
-        train_set_list = torch.utils.data.random_split(train_set,
-                                                       [1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200])
-
-        val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
-
-        task_list = []
-        for i in range(EPISODE_PER_BATCH):
-            task = Task(train_set_list[i], val_set_list[i])
-            task_list.append(task)
-
-        log_probs, rewards = [], []
-        total_rewards, final_rewards = [], []
-
-
-        for episode in range(EPISODE_PER_BATCH):
-            task = task_list[episode]
-            state = task.get_state()
-            total_reward, total_step = 0, 0
-
-            while True:
-                action, log_prob = agent.sample(state)
-                action_loss = task.train()
-                #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
-                # reward
-                # action, log_prob = agent.sample(state)
-                # next_state, reward, done, _ = env.step(action)
-
-                log_probs.append(log_prob)
-                state = next_state
-                total_reward += reward
-                total_step += 1
-
-                if done:
-                    if reward > -200:
-                        img.set_data(env.render(mode='rgb_array'))
-                        display.display(plt.gcf())
-                        display.clear_output(wait=True)
-                    final_rewards.append(reward)
-
-                    total_rewards.append(total_reward)
-                    rewards.append(
-                        np.full(total_step, total_reward))  # 設定同一個 episode 每個 action 的 reward 都是 total reward
-                    break
-
-        # 紀錄訓練過程
-        avg_total_reward = sum(total_rewards) / len(total_rewards)
-        avg_final_reward = sum(final_rewards) / len(final_rewards)
-        avg_total_rewards.append(avg_total_reward)
-        avg_final_rewards.append(avg_final_reward)
-        print("Batch {},\tTotal Reward = {:.1f},\tFinal Reward = {:.1f}".format(batch + 1, avg_total_reward,
-                                                                                avg_final_reward))
-
-        # 更新網路
-        rewards = np.concatenate(rewards, axis=0)
-        rewards = (rewards - np.mean(rewards)) / (np.std(rewards) + 1e-9)  # 將 reward 正規標準化
-        agent.learn(torch.stack(log_probs), torch.from_numpy(rewards))
 
 
 def main():
@@ -412,6 +338,7 @@ def main():
     # print(evaluate(model,loss,test_loader,device))
     # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
     for epoch in range(num_epoch):
+        print("epoch:",epoch)
         train_one_epoch(model, loss, train_loader, num_epoch, optimizer, device)
         print(evaluate(model, loss, test_loader, device))
     #     train_loss = 0.0
