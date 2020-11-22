@@ -195,8 +195,9 @@ class PolicyGradientNetwork(nn.Module):
 
         self.struct_map = {}
         for k, v in self.architecture_map.items():
-            linear = nn.Linear(16, len(v))
-            self.struct_map[k] = linear
+            self.__setattr__(k, nn.Linear(16, len(v)))
+            # linear = nn.Linear(16, len(v))
+            # self.struct_map[k] = linear
 
 
         # self.fc_conv1d_out_channels = nn.Linear(16, self.len_conv1d_out_channels)
@@ -266,7 +267,8 @@ class PolicyGradientNetwork(nn.Module):
 
         # outputs = torch.cat(action_prob_list, 0)
         for k, v in self.architecture_map.items():
-            result = self.struct_map[k](hid2)
+            linear_func = self.__getattr__(k)
+            result = linear_func(hid2)
             result_softmax = F.softmax(result, dim=-1)
             action_prob = torch.sum(result_softmax, dim=0)
             action_prob_map[k] = action_prob
@@ -280,12 +282,12 @@ class PolicyGradientAgent():
 
     def __init__(self):
 
-        self.conv1d_out_channels_list = [80,90,100,110]#[i for i in range(100) if i>9 and i%5==0]
-        self.conv1d_kernel_size_list = [7,5,1]#[i for i in range(18) if i>0 and i%2==1]
-        self.linear1200_80_out_features_list = [70,40,80,60]#[i for i in range(200) if i>9 and i%10==0]
-        self.linear80_40_out_features_list = [40,16,5]#[i for i in range(150) if i>9 and i%10==0]
+        self.conv1d_out_channels_list = [i for i in range(100) if i>9 and i%5==0] #[80,90,100,110]
+        self.conv1d_kernel_size_list = [i for i in range(18) if i>0 and i%2==1]  #[7,5,1]
+        self.linear1200_80_out_features_list = [i for i in range(200) if i>9 and i%10==0]#[70,40,80,60]
+        self.linear80_40_out_features_list = [i for i in range(150) if i>9 and i%10==0]#[40,16,5]
 
-        self.linear40_40_out_features_list = [10,20,40,80]#[i for i in range(100) if i>2 and i%10==0]
+        self.linear40_40_out_features_list = [i for i in range(100) if i>2 and i%10==0]#[10,20,40,80]
         self.need_pool = [0,1]
         tp_size = train_x_for_torch[0].shape
         self.architecture_map ={
@@ -318,10 +320,9 @@ class PolicyGradientAgent():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        for name, param in self.network.named_parameters():
-            if param.requires_grad:
-                print(name, param.data)
-
+        # for name, param in self.network.named_parameters():
+        #     if param.requires_grad:
+        #         print(name, param.data)
 
 
     def sample_work(self, state):
@@ -333,7 +334,7 @@ class PolicyGradientAgent():
         prob = torch.exp(log_prob)
         # 这里是暂时先放4个
         # action_space = torch.tensor([self.conv1d_out_channels_list, self.conv1d_kernel_size_list, self.linear1200_80_out_features_list, self.linear80_40_out_features_list], device=device)
-        action_space = torch.tensor([[80,90,100,110], [7,3,5,1], [70,40,80,60], [40,20,35,16]])
+        action_space = torch.tensor([[80,90,100,110], [7,3,5,1], [70,40,80,60], [40,5,35,16]])
         action = torch.gather(action_space, 1, action_index.unsqueeze(1)).squeeze(1)
         # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
         regression_params = {
@@ -404,6 +405,7 @@ class Task():
 
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
+
         num_epoch = 70
 
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程

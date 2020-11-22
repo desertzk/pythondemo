@@ -59,7 +59,7 @@ class Preprocess():
     def get_w2v_model(self):
         # 把之前訓練好的word to vec 模型讀進來
         self.embedding = Word2Vec.load(self.w2v_path)
-        self.embedding_dim = self.embedding.vector_size
+        self.embedding_dim = self.embedding.vector_size  #每一个词都变成250维的向量，这个向量里包含了每个词之间的关系
     def add_embedding(self, word):
         # 把word加進embedding，並賦予他一個隨機生成的representation vector
         # word只會是"<PAD>"或"<UNK>"
@@ -86,7 +86,7 @@ class Preprocess():
             #e.g. self.vectors[1] = '魯' vector
             self.word2idx[word] = len(self.word2idx)
             self.idx2word.append(word)
-            self.embedding_matrix.append(self.embedding[word])
+            self.embedding_matrix.append(self.embedding[word])   #每一个词都变成250维的向量，这个向量里包含了每个词之间的关系
         print('')
         self.embedding_matrix = torch.tensor(self.embedding_matrix)
         # 將"<PAD>"跟"<UNK>"加進embedding裡面
@@ -177,7 +177,7 @@ class LSTM_Net(nn.Module):
                                          nn.Linear(hidden_dim, 1),
                                          nn.Sigmoid() )
     def forward(self, inputs):
-        inputs = self.embedding(inputs)
+        inputs = self.embedding(inputs) #通过index 转化为 embedding 数据
         x, _ = self.lstm(inputs, None)
         # x 的 dimension (batch, seq_len, hidden_size)
         # 取用 LSTM 最後一層的 hidden state
@@ -207,7 +207,7 @@ def training(batch_size, n_epoch, lr, model_dir, train, valid, model, device):
             inputs = inputs.to(device, dtype=torch.long) # device為"cuda"，將inputs轉成torch.cuda.LongTensor
             labels = labels.to(device, dtype=torch.float) # device為"cuda"，將labels轉成torch.cuda.FloatTensor，因為等等要餵進criterion，所以型態要是float
             optimizer.zero_grad() # 由於loss.backward()的gradient會累加，所以每次餵完一個batch後需要歸零
-            outputs = model(inputs) # 將input餵給模型
+            outputs = model(inputs) # 將input餵給模型 这里是embedding index以后的数据
             outputs = outputs.squeeze() # 去掉最外面的dimension，好讓outputs可以餵進criterion()
             loss = criterion(outputs, labels) # 計算此時模型的training loss
             loss.backward() # 算loss的gradient

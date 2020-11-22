@@ -210,39 +210,6 @@ class PolicyGradientNetwork(nn.Module):
 
         action_prob_map = {}
 
-
-        # conv1d_out_channels = self.fc_conv1d_out_channels(hid2)
-        # result_conv1d_out_channels = F.softmax(conv1d_out_channels, dim=-1)
-        # action_prob_conv1d_out_channels = torch.sum(result_conv1d_out_channels,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_conv1d_out_channels)
-        #
-        # conv1d_kernel_size = self.fc_conv1d_kernel_size(hid2)
-        # result_conv1d_kernel_size = F.softmax(conv1d_kernel_size, dim=-1)
-        # action_prob_conv1d_kernel_size = torch.sum(result_conv1d_kernel_size,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_conv1d_kernel_size)
-        #
-        # fc_linear1200_80_out_features = self.fc_linear1200_80_out_features(hid2)
-        # result_fc_linear1200_80_out_features = F.softmax(fc_linear1200_80_out_features, dim=-1)
-        # action_prob_fc_linear1200_80_out_features = torch.sum(result_fc_linear1200_80_out_features,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_fc_linear1200_80_out_features)
-        #
-        # fc_linear80_40_out_features = self.fc_linear80_40_out_features(hid2)
-        # result_fc_linear80_40_out_features = F.softmax(fc_linear80_40_out_features, dim=-1)
-        # action_prob_fc_linear80_40_out_features = torch.sum(result_fc_linear80_40_out_features,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_fc_linear80_40_out_features)
-        #
-        #
-        # fc_linear40_40_out_features = self.fc_linear40_40_out_features(hid2)
-        # result_fc_linear40_40_out_features = F.softmax(fc_linear40_40_out_features, dim=-1)
-        # action_prob_fc_linear40_40_out_features = torch.sum(result_fc_linear40_40_out_features,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_fc_linear40_40_out_features)
-        #
-        # fc_need_pool = self.fc_need_pool(hid2)
-        # result_fc_need_pool = F.softmax(fc_need_pool, dim=-1)
-        # action_prob_fc_need_pool = torch.sum(result_fc_need_pool,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
-        # action_prob_list.append(action_prob_fc_need_pool)
-
-        # outputs = torch.cat(action_prob_list, 0)
         for k, v in self.architecture_map.items():
             linear = nn.Linear(16, len(v))
             result = linear(hid2)
