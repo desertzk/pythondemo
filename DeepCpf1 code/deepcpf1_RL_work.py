@@ -174,7 +174,7 @@ class Regression(nn.Module):
 '''
 class PolicyGradientNetwork(nn.Module):
 
-    def __init__(self,state,architecture_map=None):
+    def __init__(self,state,architecture_map=None,layer=6):
         super().__init__()
         self.architecture_map = architecture_map
         self.len_conv1d_out_channels = len(architecture_map.get("conv1d_out_channels"))
@@ -300,15 +300,17 @@ class PolicyGradientAgent():
         }
 
         self.network = PolicyGradientNetwork(tp_size,self.architecture_map)#.to(device)
-        params = self.network.parameters
-        print(params)
+
+        # params = self.network.parameters
+        # print(params)
+        # 这里可以看到在哪个设备上计算的cpu or gpu
         # for p in params:
         #     print(p.device)
         #     print(p.shape)
-
-        for name, param in self.network.named_parameters():
-            if param.requires_grad:
-                print(name, param.data)
+        # 这里可以打印所有参数
+        # for name, param in self.network.named_parameters():
+        #     if param.requires_grad:
+        #         print(name, param.data)
 
         self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
 
@@ -345,7 +347,7 @@ class PolicyGradientAgent():
             "linear40_40_out_features": {"action":40},
             "need_pool": {"action":1},
         }
-        print(regression_params)
+        # print(regression_params)
         return regression_params,log_prob
 
     def sample(self, state):
@@ -370,7 +372,7 @@ class PolicyGradientAgent():
             regression_params[k]["prob"] = prob.item()
 
         avg_log_prob = total_log_prob/len(action_prob_map)
-        print(regression_params)
+        # print(regression_params)
 
         # regression_params = {
         #     "conv1d_out_channels":action[0],
