@@ -14,6 +14,10 @@ from torch.distributions import Categorical
 import time
 import math
 from matplotlib import pyplot as plt
+import pandas as pd
+from scipy.stats import spearmanr
+
+
 
 
 def PREPROCESS_ONE_HOT(train_data):
@@ -212,7 +216,7 @@ class Task():
         model = Regression().to(device)
         loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-        num_epoch = 150
+        num_epoch = 85
 
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
         for epoch in range(num_epoch):
@@ -254,7 +258,31 @@ batch_size = 256
 
 
 train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
+test_loader = DataLoader(test_set, batch_size=256, shuffle=False)
+
+
+
+def one_hot_decode(feature):
+    # data_n = len(feature)
+    seqs = []
+    for item in feature:
+        oseqs = item.cpu().numpy()
+        oseqs = np.transpose(oseqs,(1,0))
+        seq=""
+        for oseq in oseqs:
+            if oseq[0] == 1.0:
+                seq+="A"
+            elif oseq[1] == 1.0:
+                seq += "C"
+            elif oseq[2] == 1.0:
+                seq += "G"
+            elif oseq[3] == 1.0:
+                seq += "T"
+        seqs.append(seq)
+
+    return seqs
+
+
 
 
 
@@ -263,18 +291,24 @@ test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
 def evaluate(model, loss_fn, dataloader, device):
     model.eval()
     epoch_loss = 0.0
+    dftotal = pd.DataFrame(columns=["bp","predict","ground truth"])
     with torch.no_grad():
         for feature, target in dataloader:
             feature, target = feature.to(device), target.to(device)
             output = model(feature)
+            seqs = one_hot_decode(feature)
+            df = pd.DataFrame(columns=["bp","predict","ground truth"])
+            df["bp"] = seqs
+            df["predict"] = output.cpu()
+            df["ground truth"] = target.cpu()
             loss = loss_fn(output, target)
             epoch_loss += loss.item()
-    return epoch_loss/len(dataloader)
+
+            dftotal = dftotal.append(df)
+    return epoch_loss/len(dataloader),df
 
 
 def train_one_epoch(model, loss_fn, dataloader,num_epoch,optimizer, device):
-
-
     train_loss = 0.0
     count = math.ceil(len(train_x)/batch_size)
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
@@ -332,7 +366,7 @@ def main():
     model = Regression().to(device)
     loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-    num_epoch = 150
+    num_epoch = 1500
 
     # train(model, loss, train_loader, num_epoch, optimizer, device)
     # print(evaluate(model,loss,test_loader,device))
@@ -340,7 +374,12 @@ def main():
     for epoch in range(num_epoch):
         print("epoch:",epoch)
         train_one_epoch(model, loss, train_loader, num_epoch, optimizer, device)
-        print(evaluate(model, loss, test_loader, device))
+        avgloss,df = evaluate(model, loss, test_loader, device)
+        print(avgloss)
+        rho, p = spearmanr(df["predict"],df["ground truth"])
+        print("spearman :"+ str(rho))
+        print("p :"+str(p))
+
     #     train_loss = 0.0
     #     count = math.ceil(len(train_x)/batch_size)
     #     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)

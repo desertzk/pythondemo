@@ -1,20 +1,31 @@
+
 import numpy as np
-import os
-import numpy as np
-import cv2
+
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
+
 import pandas as pd
 from numpy import zeros
-from PIL import Image
+
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 from torch.distributions import Categorical
-import time
+import torch.nn.functional as F
 import math
-from matplotlib import pyplot as plt
+import logging
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("debugembedding1.log"),
+        logging.StreamHandler()
+    ]
+)
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
+logging.info(device)
 
 def PREPROCESS_ONE_HOT(train_data):
     data_n = len(train_data)
@@ -37,22 +48,7 @@ def PREPROCESS_ONE_HOT(train_data):
 
     return SEQ
 
-def data_load():
-    train_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=0)
-    test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
-    use_data = train_data[0:14999]
-    new_header = test_data.iloc[0]
-    test_data = test_data[1:]
-    test_data.index = np.arange(0, len(test_data))
-    test_data.columns = new_header
-    bp34_col = use_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
-    indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
-    SEQ = PREPROCESS_ONE_HOT(bp34_col)
 
-    test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
-    test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
-    return SEQ,indel_f,test_SEQ,test_indel_f
 
 
 class Regression(nn.Module):
@@ -119,24 +115,19 @@ class Regression(nn.Module):
 
 # 这里有个问题是state怎么搞
 # 我的想法是batch里每个输入的atcg碱基作为state
-'''
-## Policy Gradient
 
-現在來搭建一個簡單的 policy network。
-我們預設模型的輸入是 8-dim 的 observation，輸出則是離散的四個動作之一：
-'''
 class PolicyGradientNetwork(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(8, 16)
-        self.fc2 = nn.Linear(16, 16)
-        self.fc3 = nn.Linear(16, 4)     #最后输出的4dim是4个动作的概率
+        self.fc1 = nn.Linear(64, 32)
+        self.fc2 = nn.Linear(32, 16)
+        self.fc3 = nn.Linear(16, 11)     #最后输出的4dim是4个动作的概率
 
     def forward(self, state):
         hid = torch.tanh(self.fc1(state))
         hid = torch.tanh(self.fc2(hid))
-        result = self.fc3(hid)
+        result = F.softmax(self.fc3(hid), dim=-1)
         return result
 
 
@@ -153,25 +144,89 @@ class PolicyGradientAgent():
     def __init__(self, network):
         self.network = network
         self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
+        self.atcg = np.linspace(0,1,11)
+        self.data_load()
 
-    def learn(self, log_probs, rewards):
-        loss = (-log_probs * rewards).sum()
+    def data_load(self):
+        train_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=0)
+        test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
+        use_data = train_data[0:14999]
+        new_header = test_data.iloc[0]
+        test_data = test_data[1:]
+        test_data.index = np.arange(0, len(test_data))
+        test_data.columns = new_header
+        self.bp34_col = use_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+        self.indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
+        # SEQ = PREPROCESS_ONE_HOT(bp34_col)
+
+        self.test_bp34 = test_data[
+            "34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+        self.test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
+        # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
+
+    def embedding(self,train_data,atcg):
+        data_n = len(train_data)
+        SEQ = zeros((data_n, 34, 4), dtype=float)
+        # CA = zeros((data_n, 1), dtype=int)
+
+        for l in range(0, data_n):
+            seq = train_data[l]
+            for i in range(34):
+                if seq[i] in "Aa":
+                    SEQ[l,i] = atcg["Aa"]
+                elif seq[i] in "Cc":
+                    SEQ[l,i] = atcg["Cc"]
+                elif seq[i] in "Gg":
+                    SEQ[l,i] = atcg["Gg"]
+                elif seq[i] in "Tt":
+                    SEQ[l,i] = atcg["Tt"]
+            # CA[l - 1, 0] = int(data[2])
+
+        return SEQ
+
+
+    def learn(self, rewards,log_prob):
+        # 损失函数要是一个式子
+        loss = -torch.mean(log_prob)*rewards
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
     def sample(self, state):
-        action_prob = self.network(torch.FloatTensor(state))
+        # all_train_data = self.train_loader.dataset[:]
+        item_action_prob = self.network(state)
+        # action_prob = torch.sum(item_action_prob,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
+        action_dist = Categorical(item_action_prob)
+        action_index = action_dist.sample() #.unsqueeze(1)  这里就是根据概率进行采样
+        log_prob = action_dist.log_prob(action_index)
+        prob = torch.exp(log_prob)
+
+
+        # 这里是暂时先放4个
+        # action_space = torch.tensor([self.conv1d_out_channels_list, self.conv1d_kernel_size_list, self.linear1200_80_out_features_list, self.linear80_40_out_features_list], device=device)
+        action_space = torch.tensor([self.atcg, self.atcg, self.atcg, self.atcg,
+                                     self.atcg, self.atcg, self.atcg, self.atcg,
+                                     self.atcg, self.atcg, self.atcg, self.atcg,
+                                     self.atcg, self.atcg, self.atcg, self.atcg])
+        action1 = torch.gather(action_space, 1, action_index.unsqueeze(1)).squeeze(1)
+        action=action1.reshape(4, 4)
         # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
-        action_dist = Categorical(action_prob)
-        action = action_dist.sample()   # 这里就是根据概率进行采样
-        log_prob = action_dist.log_prob(action)
-        return action.item(), log_prob
+        embedding_params = {
+            "Aa":action[0],
+            "Cc":action[1],
+            "Gg":action[2],
+            "Tt":action[3],
+        }
+        logging.info(str(embedding_params)+"\n   prob: "+str(prob))
+        train_x = self.embedding(self.bp34_col,embedding_params)
+        test_x = self.embedding(self.test_bp34,embedding_params)
+        return train_x,self.indel_f,test_x,self.test_indel_f,log_prob
+
 
 # 最後，建立一個 network 和 agent，就可以開始進行訓練了。
-network = PolicyGradientNetwork()
-agent = PolicyGradientAgent(network)
+# network = PolicyGradientNetwork().to(device)
+# agent = PolicyGradientAgent(network)
 
 
 class RNADataset(Dataset):
@@ -199,8 +254,10 @@ class Task():
         self.train_set = train_set
         self.val_set = val_set
         self.num_epoch = 100
-        self.train_loader = DataLoader(train_set, batch_size=len(train_set), shuffle=True)
-        self.val_loader = DataLoader(val_set, batch_size=len(val_set), shuffle=True)
+        self.train_loader = DataLoader(train_set, batch_size=256, shuffle=True)
+        self.val_loader = DataLoader(val_set, batch_size=256, shuffle=True)
+        self.model = Regression().to(device)
+        self.loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
 
 
     def get_state(self):
@@ -209,25 +266,25 @@ class Task():
 
 
     def train(self):
-        model = Regression().to(device)
-        loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-        num_epoch = 150
+
+
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.005)  # optimizer 使用 Adam
+        num_epoch = 70
 
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
         for epoch in range(num_epoch):
             train_loss = 0.0
-            count = math.ceil(len(train_x) / batch_size)
-            model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
+            count = math.ceil(len(self.train_set) / batch_size)
+            self.model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
             # 所谓iterations就是完成一次epoch所需的batch个数。
-            for i, data in enumerate(train_loader):  # 这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
+            for i, data in enumerate(self.train_loader):  # 这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
                 optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
 
                 # print(j)
                 # input = data[0].unsqueeze(0)
-                train_pred = model(
+                train_pred = self.model(
                     data[0].to(device=device))  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數  input (72,3,128,128)
-                batch_loss = loss(train_pred, data[1].to(
+                batch_loss = self.loss(train_pred, data[1].to(
                     device=device))  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
                 batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
                 # print(str(i))
@@ -236,16 +293,29 @@ class Task():
                 # train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
                 train_loss += batch_loss.item()
 
-            print("Epoch :", epoch, "train_loss:", train_loss / count)
+        print("Epoch :", epoch, "train_loss:", train_loss / count)
+        return train_loss / count
+
+
+    def evaluate(self):
+        self.model.eval()
+        epoch_loss = 0.0
+        with torch.no_grad():
+            for feature, target in self.val_loader:
+                feature, target = feature.to(device), target.to(device)
+                output = self.model(feature)
+                loss = self.loss(output, target)
+                epoch_loss += loss.item()
+        return epoch_loss / len(self.val_loader)
 
 device ="cuda"
 
-train_x, train_y, test_x, test_y = data_load()
+# train_x, train_y, test_x, test_y = data_load()
 # 维度互换
-train_x_for_torch = np.transpose(train_x,(0,2,1))
-test_x__for_torch = np.transpose(test_x,(0,2,1))
-all_train_set = RNADataset(train_x_for_torch,train_y)
-test_set = RNADataset(test_x__for_torch,test_y)
+# train_x_for_torch = np.transpose(train_x,(0,2,1))
+# test_x__for_torch = np.transpose(test_x,(0,2,1))
+# all_train_set = RNADataset(train_x_for_torch,train_y)
+# test_set = RNADataset(test_x__for_torch,test_y)
 batch_size = 256
 
 
@@ -253,8 +323,8 @@ batch_size = 256
 
 
 
-train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
+# train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
+# test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
 
 
 
@@ -322,6 +392,94 @@ def train(model, loss_fn, dataloader,num_epoch,optimizer, device):
 
 
         print("Epoch :", epoch ,"train_loss:",train_loss/count)
+
+
+
+max_reward=-99999
+
+def reinforcementlearning_main():
+    '''
+    ## 訓練 Agent
+
+    現在我們開始訓練 agent。
+    透過讓 agent 和 environment 互動，我們記住每一組對應的 log probabilities 及 reward，並在成功登陸或者不幸墜毀後，回放這些「記憶」來訓練 policy network。
+    '''
+    total_train_size = 12000
+    EPISODE_PER_BATCH = 1  # 每蒐集 5 個 episodes 更新一次 agent
+    task_size = EPISODE_PER_BATCH
+    task_data_size = int(total_train_size/task_size)
+    # task_data_train = [task_data_size for i in range(task_size)]
+
+
+
+    # train_set_list = torch.utils.data.random_split(train_set,
+    #                                                task_data_train)
+    #
+    # val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
+
+    # 最後，建立一個 network 和 agent，就可以開始進行訓練了。
+    # tp_size = train_x_for_torch[0].shape
+    # tp_size = tp_size + (task_data_size,)
+    network = PolicyGradientNetwork()#.to(device)
+
+    agent = PolicyGradientAgent(network)
+
+
+    agent.network.train()  # 訓練前，先確保 network 處在 training 模式
+
+    NUM_BATCH = 58600  # 總共更新 7600 次
+
+    hidden_size = 64
+    state = torch.zeros(16, hidden_size, dtype=torch.float)
+
+    for batch in range(NUM_BATCH):
+
+        train_x, train_y, test_x, test_y ,log_prob= agent.sample(state)
+        train_x_for_torch = np.transpose(train_x, (0, 2, 1))
+        # test_x_for_torch = np.transpose(test_x, (0, 2, 1))
+        all_train_set = RNADataset(train_x_for_torch, train_y)
+        # test_set = RNADataset(test_x_for_torch, test_y)
+        batch_size = 256
+
+
+
+        train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
+        task = Task(train_set, val_set)
+        # 暂时先和数据分离开 state和数据无关
+        # state = task.get_state()
+
+
+
+        # try:
+        action_loss = task.train()
+        evaluate_loss = task.evaluate()
+        #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
+        mean_loss = action_loss*0.15+evaluate_loss*0.85
+        reward = 445 - mean_loss
+        global max_reward
+
+        if reward > max_reward:
+            max_reward = reward
+            logging.error("max_reward:"+ str(max_reward))
+            if max_reward >0 :
+                reward = reward * 2
+                logging.info("reward:***********************5555")
+        #
+        # if reward>0:
+        #     reward = reward * 3
+        #     logging.info("reward:***********************3333")
+        #     logging.info("reward:"+str(reward)+"mean_loss:"+str(mean_loss)+" action_loss"+str(action_loss)+"evaluate_loss"+str(evaluate_loss))
+
+        logging.info("reward:"+str(reward)+"mean_loss:"+str(mean_loss)+" action_loss"+str(action_loss)+"evaluate_loss"+str(evaluate_loss))
+        agent.learn(reward,log_prob)
+        # except ValueError:
+        #     logging.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        #     reward = -1700
+        #     agent.learn(reward, log_prob)
+        # except Exception as ex:
+        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+        #     reward = -1700
+        #     agent.learn(reward, log_prob)
 
 
 
@@ -414,6 +572,6 @@ def PREPROCESS(lines):
 
 
 if __name__ == '__main__':
-    main()
-    # reinforcementlearning_main()
+    # main()
+    reinforcementlearning_main()
 

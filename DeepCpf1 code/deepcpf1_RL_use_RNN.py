@@ -712,7 +712,7 @@ def reinforcementlearning_main():
             action_loss = task.train(model,tr_load)
             evaluate_loss = task.evaluate(model,val_load)
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
-            mean_loss = action_loss*0.4+evaluate_loss*0.6
+            mean_loss = action_loss*0.3+evaluate_loss*0.7
             reward = 480 - mean_loss
             global max_reward
             if reward > max_reward:
@@ -722,6 +722,8 @@ def reinforcementlearning_main():
             agent.learn(reward,log_prob)
         except ValueError:
             logging.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            reward = -700
+            agent.learn(reward, log_prob)
 
 
 

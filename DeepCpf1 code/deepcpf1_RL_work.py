@@ -467,8 +467,6 @@ def evaluate(model, loss_fn, dataloader, device):
 
 
 def train_one_epoch(model, loss_fn, dataloader,num_epoch,optimizer, device):
-
-
     train_loss = 0.0
     count = math.ceil(len(train_x)/batch_size)
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)

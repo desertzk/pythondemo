@@ -178,7 +178,7 @@ class LSTM_Net(nn.Module):
                                          nn.Sigmoid() )
     def forward(self, inputs):
         inputs = self.embedding(inputs) #通过index 转化为 embedding 数据
-        x, _ = self.lstm(inputs, None)
+        x, _ = self.lstm(inputs, None) #batch , word size, word embedding vector
         # x 的 dimension (batch, seq_len, hidden_size)
         # 取用 LSTM 最後一層的 hidden state
         x = x[:, -1, :]
