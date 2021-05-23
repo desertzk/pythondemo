@@ -76,7 +76,7 @@ class EN2CNDataset(data.Dataset):
 
     # 載入資料
     self.data = []
-    with open(os.path.join(self.root, f'{set_name}.txt'), "r") as f:
+    with open(os.path.join(self.root, f'{set_name}.txt'), "r",encoding='UTF-8') as f:
       for line in f:
         self.data.append(line)
     print (f'{set_name} dataset size: {len(self.data)}')
@@ -87,9 +87,9 @@ class EN2CNDataset(data.Dataset):
 
   def get_dictionary(self, language):
     # 載入字典
-    with open(os.path.join(self.root, f'word2int_{language}.json'), "r") as f:
+    with open(os.path.join(self.root, f'word2int_{language}.json'), "r", encoding='UTF-8') as f:
       word2int = json.load(f)
-    with open(os.path.join(self.root, f'int2word_{language}.json'), "r") as f:
+    with open(os.path.join(self.root, f'int2word_{language}.json'), "r", encoding='UTF-8') as f:
       int2word = json.load(f)
     return word2int, int2word
 
@@ -137,7 +137,7 @@ class EN2CNDataset(data.Dataset):
     return en, cn
 
 
-'''
+'''模型架構
 ## Encoder
 - seq2seq模型的編碼器為RNN。 對於每個輸入，，**Encoder** 會輸出**一個向量**和**一個隱藏狀態(hidden state)**，並將隱藏狀態用於下一個輸入，換句話說，**Encoder** 會逐步讀取輸入序列，並輸出單個矢量（最終隱藏狀態）
 - 參數:
@@ -261,3 +261,406 @@ class Attention(nn.Module):
         attention = None
 
         return attention
+
+
+'''
+## Seq2Seq
+- 由 **Encoder** 和 **Decoder** 組成
+- 接收輸入並傳給 **Encoder** 
+- 將 **Encoder** 的輸出傳給 **Decoder**
+- 不斷地將 **Decoder** 的輸出傳回 **Decoder** ，進行解碼  
+- 當解碼完成後，將 **Decoder** 的輸出傳回 
+'''
+
+
+class Seq2Seq(nn.Module):
+    def __init__(self, encoder, decoder, device):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.device = device
+        assert encoder.n_layers == decoder.n_layers, \
+            "Encoder and decoder must have equal number of layers!"
+
+    def forward(self, input, target, teacher_forcing_ratio):
+        # input  = [batch size, input len, vocab size]
+        # target = [batch size, target len, vocab size]
+        # teacher_forcing_ratio 是有多少機率使用正確答案來訓練
+        batch_size = target.shape[0]
+        target_len = target.shape[1]
+        vocab_size = self.decoder.cn_vocab_size
+
+        # 準備一個儲存空間來儲存輸出
+        outputs = torch.zeros(batch_size, target_len, vocab_size).to(self.device)
+        # 將輸入放入 Encoder
+        encoder_outputs, hidden1 = self.encoder(input)
+        # Encoder 最後的隱藏層(hidden state) 用來初始化 Decoder
+        # encoder_outputs 主要是使用在 Attention
+        # 因為 Encoder 是雙向的RNN，所以需要將同一層兩個方向的 hidden state 接在一起
+        # hidden =  [num_layers * directions, batch size  , hid dim]  --> [num_layers, directions, batch size  , hid dim]
+        # view 相当于 reshape
+        hidden2 = hidden1.view(self.encoder.n_layers, 2, batch_size, -1)
+        en_hidden = torch.cat((hidden2[:, -2, :, :], hidden2[:, -1, :, :]), dim=2)
+        # 取的 <BOS> token
+        input_cn = target[:, 0]
+        preds = []
+        for t in range(1, target_len):
+            output, hidden = self.decoder(input_cn, en_hidden, encoder_outputs)
+            outputs[:, t] = output
+            # 決定是否用正確答案來做訓練
+            teacher_force = random.random() <= teacher_forcing_ratio
+            # 取出機率最大的單詞
+            top1 = output.argmax(1)
+            # 如果是 teacher force 則用正解訓練，反之用自己預測的單詞做預測
+            input_cn = target[:, t] if teacher_force and t < target_len else top1
+            preds.append(top1.unsqueeze(1))
+        preds = torch.cat(preds, 1)
+        return outputs, preds
+
+    def inference(self, input, target):
+        ########
+        # TODO #
+        ########
+        # 在這裡實施 Beam Search
+        # 此函式的 batch size = 1
+        # input  = [batch size, input len, vocab size]
+        # target = [batch size, target len, vocab size]
+        batch_size = input.shape[0]
+        input_len = input.shape[1]  # 取得最大字數
+        vocab_size = self.decoder.cn_vocab_size
+
+        # 準備一個儲存空間來儲存輸出
+        outputs = torch.zeros(batch_size, input_len, vocab_size).to(self.device)
+        # 將輸入放入 Encoder
+        encoder_outputs, hidden = self.encoder(input)
+        # Encoder 最後的隱藏層(hidden state) 用來初始化 Decoder
+        # encoder_outputs 主要是使用在 Attention
+        # 因為 Encoder 是雙向的RNN，所以需要將同一層兩個方向的 hidden state 接在一起
+        # hidden =  [num_layers * directions, batch size  , hid dim]  --> [num_layers, directions, batch size  , hid dim]
+        hidden = hidden.view(self.encoder.n_layers, 2, batch_size, -1)
+        hidden = torch.cat((hidden[:, -2, :, :], hidden[:, -1, :, :]), dim=2)
+        # 取的 <BOS> token
+        input = target[:, 0]
+        preds = []
+        for t in range(1, input_len):
+            output, hidden = self.decoder(input, hidden, encoder_outputs)
+            # 將預測結果存起來
+            outputs[:, t] = output
+            # 取出機率最大的單詞
+            top1 = output.argmax(1)
+            input = top1
+            preds.append(top1.unsqueeze(1))
+        preds = torch.cat(preds, 1)
+        return outputs, preds
+
+
+'''
+# utils
+- 基本操作:
+  - 儲存模型
+  - 載入模型
+  - 建構模型
+  - 將一連串的數字還原回句子
+  - 計算 BLEU score
+  - 迭代 dataloader
+'''
+## 儲存模型
+
+def save_model(model, optimizer, store_model_path, step):
+  torch.save(model.state_dict(), f'{store_model_path}/model_{step}.ckpt')
+  return
+
+
+## 載入模型
+def load_model(model, load_model_path):
+  print(f'Load model from {load_model_path}')
+  model.load_state_dict(torch.load(f'{load_model_path}.ckpt'))
+  return model
+
+## 建構模型
+def build_model(config, en_vocab_size, cn_vocab_size):
+  # 建構模型
+  encoder = Encoder(en_vocab_size, config.emb_dim, config.hid_dim, config.n_layers, config.dropout)
+  decoder = Decoder(cn_vocab_size, config.emb_dim, config.hid_dim, config.n_layers, config.dropout, config.attention)
+  model = Seq2Seq(encoder, decoder, device)
+  print(model)
+  # 建構 optimizer
+  optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+  print(optimizer)
+  if config.load_model:
+    model = load_model(model, config.load_model_path)
+  model = model.to(device)
+
+  return model, optimizer
+
+## 數字轉句子
+def tokens2sentence(outputs, int2word):
+    sentences = []
+    if outputs.ndim == 2:
+        for tokens in outputs:
+            sentence = []
+            for token in tokens:
+                word = int2word[str(int(token))]
+                if word == '<EOS>':
+                    break
+                sentence.append(word)
+            sentences.append(sentence)
+    else:
+        sentence = []
+        for token in outputs:
+            word = int2word[str(int(token))]
+            if word == '<EOS>':
+                break
+            sentence.append(word)
+        sentences.append(sentence)
+
+    return sentences
+
+## 計算 BLEU score
+import nltk
+from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.bleu_score import SmoothingFunction
+
+
+def computebleu(sentences, targets):
+    score = 0
+    assert (len(sentences) == len(targets))
+
+    def cut_token(sentence):
+        tmp = []
+        for token in sentence:
+            if token == '<UNK>' or token.isdigit() or len(bytes(token[0], encoding='utf-8')) == 1:
+                tmp.append(token)
+            else:
+                tmp += [word for word in token]
+        return tmp
+
+    for sentence, target in zip(sentences, targets):
+        sentence = cut_token(sentence)
+        target = cut_token(target)
+        score += sentence_bleu([target], sentence, weights=(1, 0, 0, 0))
+
+    return score
+
+##迭代 dataloader
+def infinite_iter(data_loader):
+  it = iter(data_loader)
+  while True:
+    try:
+      ret = next(it)
+      yield ret
+    except StopIteration:
+      it = iter(data_loader)
+
+## schedule_sampling
+########
+# TODO #
+########
+
+# 請在這裡直接 return 0 來取消 Teacher Forcing
+# 請在這裡實作 schedule_sampling 的策略
+
+def schedule_sampling():
+    return 1
+
+
+def train(model, optimizer, train_iter, loss_function, total_steps, summary_steps, train_dataset):
+    model.train()
+    model.zero_grad()
+    losses = []
+    loss_sum = 0.0
+    for step in range(summary_steps):
+        sources, targets = next(train_iter)
+
+        sources, targets = sources.to(device), targets.to(device)
+        outputs, preds = model(sources, targets, schedule_sampling())
+
+        # print(tokens2sentence(preds, train_dataset.int2word_cn))
+        # print(tokens2sentence(sources, train_dataset.int2word_en))
+        # print(tokens2sentence(targets, train_dataset.int2word_cn))
+
+        # targets 的第一個 token 是 <BOS> 所以忽略
+        outputs = outputs[:, 1:].reshape(-1, outputs.size(2))
+        targets_first = targets[:, 1:].reshape(-1) #减少一维 取第一个 然后顺带就把第一个删了 相当于队列头取出一个
+
+        sources_first = sources[:, 1:].reshape(-1)  # 减少一维 取第一个？
+        predict_first = preds[:, 1:].reshape(-1)  # 减少一维 取第一个？
+
+
+        print(tokens2sentence(sources_first, train_dataset.int2word_en),tokens2sentence(predict_first, train_dataset.int2word_cn),tokens2sentence(targets_first, train_dataset.int2word_cn))
+
+        loss = loss_function(outputs, targets_first)
+
+        optimizer.zero_grad()
+        loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+        optimizer.step()
+
+        loss_sum += loss.item()
+        if (step + 1) % 5 == 0:
+            loss_sum = loss_sum / 5
+            print("\r", "train [{}] loss: {:.3f}, Perplexity: {:.3f}      ".format(total_steps + step + 1, loss_sum,
+                                                                                   np.exp(loss_sum)), end=" ")
+            losses.append(loss_sum)
+            loss_sum = 0.0
+
+    return model, optimizer, losses
+
+## 檢驗/測試
+# - 防止訓練發生overfitting
+
+def test(model, dataloader, loss_function):
+  model.eval()
+  loss_sum, bleu_score= 0.0, 0.0
+  n = 0
+  result = []
+  for sources, targets in dataloader:
+    sources, targets = sources.to(device), targets.to(device)
+    batch_size = sources.size(0)
+    outputs, preds = model.inference(sources, targets)
+    # targets 的第一個 token 是 <BOS> 所以忽略
+    outputs = outputs[:, 1:].reshape(-1, outputs.size(2))
+    targets = targets[:, 1:].reshape(-1)
+
+    loss = loss_function(outputs, targets)
+    loss_sum += loss.item()
+
+    # 將預測結果轉為文字
+    targets = targets.view(sources.size(0), -1)
+    preds = tokens2sentence(preds, dataloader.dataset.int2word_cn)
+    sources = tokens2sentence(sources, dataloader.dataset.int2word_en)
+    targets = tokens2sentence(targets, dataloader.dataset.int2word_cn)
+    for source, pred, target in zip(sources, preds, targets):
+      result.append((source, pred, target))
+    # 計算 Bleu Score
+    bleu_score += computebleu(preds, targets)
+
+    n += batch_size
+
+  return loss_sum / len(dataloader), bleu_score / n, result
+
+## 訓練流程
+# - 先訓練，再檢驗
+def train_process(config):
+    # 準備訓練資料
+    train_dataset = EN2CNDataset(config.data_path, config.max_output_len, 'training')
+    train_loader = data.DataLoader(train_dataset, batch_size=config.batch_size, shuffle=False)
+    train_iter = infinite_iter(train_loader)
+    # 準備檢驗資料
+    val_dataset = EN2CNDataset(config.data_path, config.max_output_len, 'validation')
+    val_loader = data.DataLoader(val_dataset, batch_size=1)
+    # 建構模型
+    model, optimizer = build_model(config, train_dataset.en_vocab_size, train_dataset.cn_vocab_size)
+    loss_function = nn.CrossEntropyLoss(ignore_index=0)
+
+    train_losses, val_losses, bleu_scores = [], [], []
+    total_steps = 0
+    while (total_steps < config.num_steps):
+        # 訓練模型
+        model, optimizer, loss = train(model, optimizer, train_iter, loss_function, total_steps, config.summary_steps,
+                                       train_dataset)
+        train_losses += loss
+        # 檢驗模型
+        val_loss, bleu_score, result = test(model, val_loader, loss_function)
+        val_losses.append(val_loss)
+        bleu_scores.append(bleu_score)
+
+        total_steps += config.summary_steps
+        print("\r", "val [{}] loss: {:.3f}, Perplexity: {:.3f}, blue score: {:.3f}       ".format(total_steps, val_loss,
+                                                                                                  np.exp(val_loss),
+                                                                                                  bleu_score))
+
+        # 儲存模型和結果
+        if total_steps % config.store_steps == 0 or total_steps >= config.num_steps:
+            save_model(model, optimizer, config.store_model_path, total_steps)
+            with open(f'{config.store_model_path}/output_{total_steps}.txt', 'w') as f:
+                for line in result:
+                    print(line, file=f)
+
+    return train_losses, val_losses, bleu_scores
+
+
+## 測試流程
+def test_process(config):
+  # 準備測試資料
+  test_dataset = EN2CNDataset(config.data_path, config.max_output_len, 'testing')
+  test_loader = data.DataLoader(test_dataset, batch_size=1)
+  # 建構模型
+  model, optimizer = build_model(config, test_dataset.en_vocab_size, test_dataset.cn_vocab_size)
+  print ("Finish build model")
+  loss_function = nn.CrossEntropyLoss(ignore_index=0)
+  model.eval()
+  # 測試模型
+  test_loss, bleu_score, result = test(model, test_loader, loss_function)
+  # 儲存結果
+  with open(f'./test_output.txt', 'w') as f:
+    for line in result:
+      print (line, file=f)
+
+  return test_loss, bleu_score
+
+
+'''
+# Config
+- 實驗的參數設定表
+'''
+class configurations(object):
+  def __init__(self):
+    self.batch_size = 60
+    self.emb_dim = 256
+    self.hid_dim = 512
+    self.n_layers = 3
+    self.dropout = 0.5
+    self.learning_rate = 0.00005
+    self.max_output_len = 50              # 最後輸出句子的最大長度
+    self.num_steps = 12000                # 總訓練次數
+    self.store_steps = 300                # 訓練多少次後須儲存模型
+    self.summary_steps = 300              # 訓練多少次後須檢驗是否有overfitting
+    self.load_model = False               # 是否需載入模型
+    self.store_model_path = "./ckpt"      # 儲存模型的位置
+    self.load_model_path = None           # 載入模型的位置 e.g. "./ckpt/model_{step}"
+    self.data_path = "./data/hw8/cmn-eng"          # 資料存放的位置
+    self.attention = False                # 是否使用 Attention Mechanism
+
+
+
+#Main Function
+# - 讀入參數
+# - 進行訓練或是推論
+if __name__ == '__main__':
+  config = configurations()
+  print ('config:\n', vars(config))
+  train_losses, val_losses, bleu_scores = train_process(config)
+
+  config = configurations()
+  print ('config:\n', vars(config))
+  test_loss, bleu_score = test_process(config)
+  print (f'test loss: {test_loss}, bleu_score: {bleu_score}')
+
+
+
+import matplotlib.pyplot as plt
+plt.figure()
+plt.plot(train_losses)
+plt.xlabel('次數')
+plt.ylabel('loss')
+plt.title('train loss')
+plt.show()
+
+## 以圖表呈現 檢驗 的 loss 變化趨勢
+import matplotlib.pyplot as plt
+plt.figure()
+plt.plot(val_losses)
+plt.xlabel('次數')
+plt.ylabel('loss')
+plt.title('validation loss')
+plt.show()
+
+## BLEU score
+import matplotlib.pyplot as plt
+plt.figure()
+plt.plot(bleu_scores)
+plt.xlabel('次數')
+plt.ylabel('BLEU score')
+plt.title('BLEU score')
+plt.show()

@@ -139,7 +139,7 @@ class PolicyGradientNetwork(nn.Module):
         hid = torch.tanh(self.fc2(hid))
         return F.softmax(self.fc3(hid), dim=-1)
 
-
+all_loss= []
 '''
 再來，搭建一個簡單的 agent，並搭配上方的 policy network 來採取行動。
 這個 agent 能做到以下幾件事：
@@ -156,7 +156,9 @@ class PolicyGradientAgent():
 
     def learn(self, log_probs, rewards):
         loss = (-log_probs * rewards).sum()
-
+        print("loss:"+str(loss))
+        all_loss.append(loss.item())
+        # print("log_probs:"+str(log_probs)+"reward:"+str(rewards)+"loss:"+str(loss))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -182,7 +184,7 @@ agent = PolicyGradientAgent(network)
 
 agent.network.train()  # 訓練前，先確保 network 處在 training 模式
 EPISODE_PER_BATCH = 5  # 每蒐集 5 個 episodes 更新一次 agent
-NUM_BATCH = 600  # 總共更新 400 次
+NUM_BATCH = 1600  # 總共更新 400 次
 
 avg_total_rewards, avg_final_rewards = [], []
 
@@ -244,6 +246,10 @@ plt.plot(avg_total_rewards)
 plt.title("Total Rewards")
 plt.show()
 
+
+plt.plot(all_loss)
+plt.title("Total loss")
+plt.show()
 '''
 另外，`avg_final_reward` 代表的是多個回合的平均 final rewards，而 final reward 即是 agent 在單一回合中拿到的最後一個 reward。
 如果同學們還記得環境給予登月小艇 reward 的方式，便會知道，不論**回合的最後**小艇是不幸墜毀、飛出畫面、或是靜止在地面上，都會受到額外地獎勵或處罰。

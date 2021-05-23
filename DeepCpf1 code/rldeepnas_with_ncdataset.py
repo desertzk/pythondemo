@@ -128,6 +128,7 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
+batch_size = 512
 # SEQ,wt_efficiency,eSpCas,SpCas9_HF1
 train_x, wt_efficiency, eSpCas, SpCas9_HF1 = data_load_nc()
 # 维度互换
@@ -136,12 +137,14 @@ train_x_for_torch = np.transpose(train_x,(0,2,1))
 wt_efficiency_set = RNADataset(train_x,wt_efficiency)
 eSpCas_set = RNADataset(train_x,eSpCas)
 SpCas9_HF1_set = RNADataset(train_x,SpCas9_HF1)
-test_set = RNADataset(test_x__for_torch,test_y)
-batch_size = len(all_train_set)
+# test_set = RNADataset(test_x__for_torch,test_y)
+# batch_size = len(all_train_set)
 
 
-train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
+wt_efficiency_loader = DataLoader(wt_efficiency_set, batch_size=batch_size, shuffle=False)
+eSpCas_loader = DataLoader(eSpCas_set, batch_size=batch_size, shuffle=False)
+SpCas9_HF1_loader = DataLoader(SpCas9_HF1_set, batch_size=batch_size, shuffle=False)
+# test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
 
 activation_functions = {
                 'Sigmoid': nn.Sigmoid(),
@@ -774,9 +777,9 @@ def reinforcementlearning_main():
 
     hidden_size = 64
     state = torch.zeros(1, hidden_size, dtype=torch.float, device=device)
-
+    lengths = [int(len(wt_efficiency_set) * 0.8)+1, int(len(wt_efficiency_set) * 0.2)]
     for batch in range(NUM_BATCH):
-        train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
+        train_set, val_set = torch.utils.data.random_split(wt_efficiency_loader, lengths)
         task = Task(train_set, val_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
@@ -866,7 +869,7 @@ def PREPROCESS(lines):
 
 if __name__ == '__main__':
     # main()
-    data_load_nc()
+    # data_load_nc()
 
 
 

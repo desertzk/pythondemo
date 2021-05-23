@@ -10,7 +10,11 @@ import numpy as np
 torch.manual_seed(446)
 np.random.seed(446)
 
-
+t = torch.tensor([[[1, 2],
+                       [3, 4]],
+                      [[5, 6],
+                       [7, 8]]])
+print(t.shape)
 
 # we create tensors in a similar way to numpy nd arrays
 x_numpy = np.array([0.1, 0.2, 0.3])

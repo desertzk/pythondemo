@@ -177,6 +177,8 @@ class Regression(nn.Module):
             #       ,"linear80_40_out_features:",linear80_40_out_features," linear40_40_out_features:",linear40_40_out_features," need_pool:",self.need_pool)
             padding = dict_params.get("conv_padding@"+str(layer_no)).get("action")
             layers.append(nn.Conv1d(last_out, conv1d_out_channels, conv1d_kernel_size, 1,padding = padding,padding_mode="replicate"))
+            # MultiheadAttention(d_model, nhead, dropout=dropout)
+
             if conv_batchnorm is 1:
                 layers.append(nn.BatchNorm1d(conv1d_out_channels))
             # after_conv padding 以后大小一样 在kernel =1 时不一样
@@ -314,6 +316,9 @@ class PolicyGradientNetwork(nn.Module):
         # h_t = state
         self.h_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
 
+
+
+
         for i in range(self.max_conv_layer):
             for k, v in self.architecture_map["conv"].items():
                 k_str = k + "@" + str(i)
@@ -427,20 +432,7 @@ class PolicyGradientAgent():
         self.linear40_40_out_features_list = [i for i in range(900) if i>2 and i%10==0]#[10,20,40,80]
         self.need_pool = [0,1]
         tp_size = train_x_for_torch[0].shape
-        # self.architecture_map ={
-        #     "conv":{
-        #         "conv1d_out_channels": self.conv1d_out_channels_list,
-        #         "conv1d_kernel_size": self.conv1d_kernel_size_list,
-        #         "active":self.activation_functions_list,
-        #         "pool": self.pool_type_list,
-        #         "dropout":self.drop_out_list
-        #     },
-        #     "linear":{
-        #         "linear_out":self.linear40_40_out_features_list,
-        #         "active":self.activation_functions_list,
-        #         "dropout": self.drop_out_list
-        #     }
-        # }
+
 
         self.architecture_map ={
             "conv":{
@@ -466,16 +458,7 @@ class PolicyGradientAgent():
         self.action_list = []
 
         self.network = PolicyGradientNetwork(tp_size,self.architecture_map).to(device)
-        # params = self.network.parameters
-        # logging.info(params)
-        # 这里可以看到在哪个设备上计算的cpu or gpu
-        # for p in params:
-        #     logging.info(p.device)
-        #     logging.info(p.shape)
-        # 这里可以打印所有参数
-        # for name, param in self.network.named_parameters():
-        #     if param.requires_grad:
-        #         logging.info(name, param.data)
+
 
         self.optimizer = optim.SGD(self.network.parameters(), lr=0.0005)
 
@@ -489,7 +472,7 @@ class PolicyGradientAgent():
     def learn(self, rewards,log_prob):
         # 损失函数要是一个式子
         loss = -torch.mean(log_prob)*rewards
-        # logging.info("reinfor loss "+str(loss))
+        print("reinfor loss "+str(loss))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -523,7 +506,6 @@ class PolicyGradientAgent():
 
 
     def sample_action(self,action_prob_map,regression_params,key=""):
-
         for k,item_action_prob in action_prob_map.items():
             if isinstance(item_action_prob,dict):
 
@@ -761,6 +743,7 @@ def reinforcementlearning_main():
         new_linear_num = actionparam["linear_num"]
         try:
             model = Regression(actionparam).to(device)
+            print(model)
             agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
             tr_load = DataLoader(train_set, batch_size=512, shuffle=False)
             val_load = DataLoader(val_set, batch_size=512, shuffle=False)

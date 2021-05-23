@@ -89,7 +89,7 @@ class ImgDataset(Dataset):
         else:
             return X
 
-batch_size = 72
+batch_size = 64
 train_set = ImgDataset(train_x, train_y, train_transform)
 val_set = ImgDataset(val_x, val_y, test_transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
