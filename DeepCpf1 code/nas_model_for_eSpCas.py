@@ -812,8 +812,8 @@ def reinforcementlearning_main():
 
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
             mean_loss = action_loss*0.15+evaluate_loss*0.85
-            spearman_reward = (rho - 0.74) * 1000
-            reward = 500 - mean_loss + spearman_reward
+            spearman_reward = rho * 1000
+            reward = spearman_reward
             global max_reward
             global max_spearman
 
@@ -827,7 +827,7 @@ def reinforcementlearning_main():
                 logging.error("max_reward:"+ str(max_reward) +" architecture:" + str(actionparam))
                 if max_reward >0 :
                     reward = reward
-                    logging.info("new reward:***********************5555")
+                    # logging.info("new reward:***********************5555")
 
             if reward > 0:
                 # reward = reward * 3
@@ -840,10 +840,10 @@ def reinforcementlearning_main():
             logging.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             reward = -1700
             agent.learn(reward, log_prob)
-        # except Exception as ex:
-        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
-        #     reward = -1700
-        #     agent.learn(reward, log_prob)
+        except Exception as ex:
+            logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+            reward = -1700
+            agent.learn(reward, log_prob)
 
 
 

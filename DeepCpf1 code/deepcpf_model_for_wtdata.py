@@ -16,6 +16,7 @@ import math
 import torch.nn.functional as F
 import logging
 from scipy.stats import spearmanr
+from pathlib import Path
 
 
 logging.basicConfig(
@@ -30,7 +31,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-
+PATH = "checkpoint_lastwt.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -516,22 +517,45 @@ class PolicyGradientAgent():
         self.network = PolicyGradientNetwork(self.architecture_map).to(device)
 
 
-        self.optimizer = optim.SGD(self.network.parameters(), lr=0.0005)
+        self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
+        self.try_load_checkpoint()
 
     def set_new_num(self,new_conv_num,new_linear_num):
         self.conv_num = new_conv_num
         self.linear_num = new_linear_num
 
+    # 儲存及載入模型參數
+    def checkpoint_save(self, loss, epoch,reward):
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.network.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'loss': loss,
+            "reward":reward
+        }, PATH)
 
+
+
+    def try_load_checkpoint(self):
+        checkpath = Path(PATH)
+        if checkpath.exists():
+            checkpoint = torch.load(PATH)
+            self.network.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            epoch = checkpoint['epoch']
+            loss = checkpoint['loss']
+        else:
+            logging.info(f"no checkpoints found at {checkpath}!")
 
 
     def learn(self, rewards,log_prob):
         # 损失函数要是一个式子
         loss = -torch.mean(log_prob)*rewards
-        print("reinfor loss "+str(loss))
+        logging.info("log_prob:"+str(log_prob)+" rewards : "+str(rewards)+"reinfor loss "+str(loss))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        self.checkpoint_save(loss, 1, rewards)
         # for name, param in self.network.named_parameters():
         #     if param.requires_grad:
         #         logging.info(name, param.data)
@@ -811,9 +835,9 @@ def reinforcementlearning_main():
                 p = 0
 
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
-            mean_loss = action_loss*0.15+evaluate_loss*0.85
-            spearman_reward = (rho - 0.74) * 1000
-            reward = 500 - mean_loss + spearman_reward
+            mean_loss = action_loss*15+evaluate_loss*85
+            spearman_reward = rho
+            reward = spearman_reward * 100 + mean_loss
             global max_reward
             global max_spearman
 
@@ -838,12 +862,12 @@ def reinforcementlearning_main():
             agent.learn(reward,log_prob)
         except ValueError:
             logging.info("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            reward = -1700
+            reward = -200
             agent.learn(reward, log_prob)
-        # except Exception as ex:
-        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
-        #     reward = -1700
-        #     agent.learn(reward, log_prob)
+        except Exception as ex:
+            logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+            reward = -200
+            agent.learn(reward, log_prob)
 
 
 

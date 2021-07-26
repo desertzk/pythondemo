@@ -1088,7 +1088,7 @@ class PolicyGradientAgent():
 
 
 
-    def learn1(self, rewards,log_prob):
+    def learn(self, rewards,log_prob):
         # 损失函数要是一个式子
         loss = -torch.mean(log_prob)*rewards
         logging.info("reinfor loss "+str(loss))

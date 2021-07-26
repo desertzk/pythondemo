@@ -1,5 +1,5 @@
-import numpy as np
-import os
+from dna2vec.multi_k_model import MultiKModel
+from scipy.spatial import distance
 import numpy as np
 import cv2
 import torch
@@ -13,21 +13,88 @@ import torch.optim as optim
 from torch.distributions import Categorical
 import time
 import math
-from matplotlib import pyplot as plt
-import pandas as pd
-from scipy.stats import spearmanr
 
 
 
 
-def PREPROCESS_ONE_HOT(train_data,mer):
+filepath = 'pretrained/dna2vec-20161219-0153-k3to8-100d-10c-29320Mbp-sliding-Xat.w2v'
+mk_model = MultiKModel(filepath)
+
+AAA = mk_model.vector('AAA')
+
+
+base = "AGCGTTTAAAAAACATCGAACGCATCTGCTGCCT"
+source_base = base
+chunks, chunk_size = len(base), len(base)//5
+# print(range(0, chunks, chunk_size))
+embedding_vec = np.zeros(100)
+base_list = [ base[i:i+chunk_size] for i in range(0, chunks, chunk_size) ]
+for baseitem in base_list:
+    embedding_vec = embedding_vec + mk_model.vector(baseitem)
+print(embedding_vec)
+
+base = source_base
+chunks, chunk_size = len(base), len(base)//6
+embedding_vec4 = np.zeros(100)
+base_list = [ base[i:i+chunk_size] for i in range(0, chunks, chunk_size) ]
+for baseitem in base_list:
+    embedding_vec4 = embedding_vec4 + mk_model.vector(baseitem)
+
+print(embedding_vec4)
+print(1-distance.cosine(embedding_vec, embedding_vec4))
+
+
+AAA_2 = mk_model.vector('AAA')+mk_model.vector('AAA')
+AAAAAA = mk_model.vector('AAAAAA')
+GCT = mk_model.vector('GCT')
+
+
+
+
+# print(mk_model.vector('AAAAAA'))
+# print(mk_model.vector('AAA')+mk_model.vector('AAA'))
+print(1-distance.cosine(AAA, GCT))
+
+print(mk_model.cosine_distance('AAA', 'GCT'))
+
+print(1-distance.cosine(AAA_2, AAAAAA))
+
+A_43 = mk_model.vector('AAAA')-mk_model.vector('AAA')
+A_54 = mk_model.vector('AAAAA')-mk_model.vector('AAAA')
+print(1-distance.cosine(A_54, A_43))
+
+
+A_64 = mk_model.vector('AAAAAA')-mk_model.vector('AAAAA')
+A_G64 = mk_model.vector('AGTCC')-mk_model.vector('GTCC')
+A_C64 = mk_model.vector('ACCCC')-mk_model.vector('CCCC')
+print(1-distance.cosine(A_64, A_43))
+print(1-distance.cosine(A_64, A_54))
+print(1-distance.cosine(A_64, A_G64))
+print(1-distance.cosine(A_G64, A_C64))
+
+AAAA_2 = mk_model.vector('AAAA')+mk_model.vector('AAAA')
+A_8 = mk_model.vector('AAAAAAAA')
+AAA_3 = mk_model.vector('AAA')+mk_model.vector('AAAAA')
+print(1-distance.cosine(AAAA_2, A_8))
+print(1-distance.cosine(A_8, AAA_3))
+print(1-distance.cosine(AAAA_2, AAA_3))
+
+
+
+
+
+
+print()
+
+def PREPROCESS_ONE_HOT(train_data):
     data_n = len(train_data)
-    SEQ = zeros((data_n, mer, 4), dtype=int)
+    SEQ = zeros((data_n, 34, 4), dtype=int)
     # CA = zeros((data_n, 1), dtype=int)
 
     for l in range(0, data_n):
+
         seq = train_data[l]
-        for i in range(mer):
+        for i in range(34):
             if seq[i] in "Aa":
                 SEQ[l, i, 0] = 1
             elif seq[i] in "Cc":
@@ -41,43 +108,41 @@ def PREPROCESS_ONE_HOT(train_data,mer):
     return SEQ
 
 
-def data_load_nc():
-    train_data = pd.read_csv('data/DataS1.csv')
-    # test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
-    # use_data = train_data[1:14999]
-    # new_header = test_data.iloc[0]
-    # test_data = test_data[1:]
-    # test_data.index = np.arange(0, len(test_data))
-    # test_data.columns = new_header
-    bp34_col = train_data["21mer"]
-    wt_efficiency = train_data["Wt_Efficiency"]
-    eSpCas = train_data["eSpCas 9_Efficiency"]
-    SpCas9_HF1 = train_data["SpCas9-HF1_Efficiency"]
-    # SEQ = PREPROCESS_ONE_HOT(bp34_col,mer=21)
+def splite_base():
+    return
 
-    wt_df = pd.DataFrame({"21mer":bp34_col,"Wt_Efficiency":wt_efficiency})
-    wt_df_clean = wt_df.dropna()
-    wt_df_clean = wt_df_clean.reset_index(drop=True)
+def PREPROCESS_DNA_EMBEDDING(train_data):
+    data_n = len(train_data)
+    SEQ = zeros((data_n, 100))
+    # CA = zeros((data_n, 1), dtype=int)
+    chunks, chunk_size = len(train_data[0]), len(train_data[0]) // 5
+    for l in range(0, data_n):
 
-    eSpCas_df = pd.DataFrame({"21mer":bp34_col,"eSpCas 9_Efficiency":eSpCas})
-    eSpCas_df_clean = eSpCas_df.dropna()
-    eSpCas_df_clean = eSpCas_df_clean.reset_index(drop=True)
+        seq = train_data[l]
 
-    SpCas9_HF1_df = pd.DataFrame({"21mer":bp34_col,"HF1_Efficiency":SpCas9_HF1})
-    SpCas9_HF1_df_clean = SpCas9_HF1_df.dropna()
-    SpCas9_HF1_df_clean = SpCas9_HF1_df_clean.reset_index(drop=True)
+        # print(range(0, chunks, chunk_size))
+        # embedding_vec = np.zeros(100)
+        # base_list = [seq[i:i + chunk_size] for i in range(0, chunks, chunk_size)]
+        # for baseitem in base_list:
+        #     embedding_vec = embedding_vec + mk_model.vector(baseitem)
+        # SEQ[l] = embedding_vec
+
+        embedding_vec = np.zeros(100)
+        base_list = [seq[i:i + chunk_size] for i in range(0, chunks, chunk_size)]
+        for baseitem in base_list:
+            embedding_vec = embedding_vec + mk_model.vector(baseitem)
+        SEQ[l] = embedding_vec
 
 
-    # test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
-    # test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
-    return wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean
+
+    return SEQ
+
 
 
 
 def data_load():
-    train_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=0)
-    test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
+    train_data = pd.read_excel('../data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=0)
+    test_data = pd.read_excel('../data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
     use_data = train_data[0:14999]
     new_header = test_data.iloc[0]
     test_data = test_data[1:]
@@ -85,40 +150,40 @@ def data_load():
     test_data.columns = new_header
     bp34_col = use_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
     indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
-    SEQ = PREPROCESS_ONE_HOT(bp34_col)
-
+    # SEQ = PREPROCESS_ONE_HOT(bp34_col)
+    SEQ = PREPROCESS_DNA_EMBEDDING(bp34_col)
     test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
     test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
+    test_SEQ = PREPROCESS_DNA_EMBEDDING(test_bp34)
     return SEQ,indel_f,test_SEQ,test_indel_f
 
 
 class Regression(nn.Module):
     def __init__(self):
         super(Regression, self).__init__()
-        self.conv1d = nn.Conv1d(4, 80, 5, 1) # 进去4通道出来80通道 (30,80)
+        # self.conv1d = nn.Conv1d(100, 80, 5, 1) # 进去4通道出来80通道 (30,80)
         self.relu = nn.ReLU()
-
-        self.flatten = nn.Flatten()
+        # self.avg1d = nn.AvgPool1d(2) # size of window 2  (15,80)
+        # self.flatten = nn.Flatten()
         self.dropout = nn.Dropout(p=0.3)
-        self.linear1200_80 = nn.Linear(80 * 17, 80)
-        self.linear80_40 = nn.Linear(80, 40)  #(None, 40)
-        self.linear40_40 = nn.Linear(40, 40)  # (None, 40)
-        self.linear40_1 = nn.Linear(40, 1)  # (None, 40)
+        self.linear1200_80 = nn.Linear(100, 64)
+        self.linear80_40 = nn.Linear(64, 32)  #(None, 40)
+        self.linear40_40 = nn.Linear(32, 32)  # (None, 40)
+        self.linear40_1 = nn.Linear(32, 1)  # (None, 40)
 
 
 
     def forward(self, x):
-        outconv1d = self.conv1d(x) # 进去4通道出来80通道 (30,80)
-        outact = self.relu(outconv1d)
-        # Seq_deepCpf1_C1 = Convolution1D(80, 5)(Seq_deepCpf1_Input_SEQ)
+        # outconv1d = self.conv1d(x) # 进去4通道出来80通道 (30,80)
+        # outact = self.relu(outconv1d)
+        # # Seq_deepCpf1_C1 = Convolution1D(80, 5)(Seq_deepCpf1_Input_SEQ)
         # outavg1d = self.avg1d(outact)  # size of window 2  (15,80)
-        # Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
-        out_flatten = self.flatten(outact)
-        # Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
-        out_dropout = self.dropout(out_flatten)
+        # # Seq_deepCpf1_P1 = AveragePooling1D(2)(Seq_deepCpf1_C1)
+        # out_flatten = self.flatten(outavg1d)
+        # # Seq_deepCpf1_F = Flatten()(Seq_deepCpf1_P1)
+        # out_dropout = self.dropout(out_flatten)
         # Seq_deepCpf1_DO1 = Dropout(0.3)(Seq_deepCpf1_F)
-        out_linear1200_80 = self.linear1200_80(out_dropout)
+        out_linear1200_80 = self.linear1200_80(x)
         out_act_linear1200_80 = self.relu(out_linear1200_80)
         # Seq_deepCpf1_D1 = Dense(80, activation='relu')(Seq_deepCpf1_DO1)
         out_dropout1200_80 = self.dropout(out_act_linear1200_80)
@@ -178,38 +243,7 @@ class PolicyGradientNetwork(nn.Module):
         return result
 
 
-'''
-再來，搭建一個簡單的 agent，並搭配上方的 policy network 來採取行動。
-這個 agent 能做到以下幾件事：
-- `learn()`：從記下來的 log probabilities 及 rewards 來更新 policy network。
-- `sample()`：從 environment 得到 observation 之後，利用 policy network 得出應該採取的行動。
-而此函式除了回傳抽樣出來的 action，也會回傳此次抽樣的 log probabilities。
-'''
 
-class PolicyGradientAgent():
-
-    def __init__(self, network):
-        self.network = network
-        self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
-
-    def learn(self, log_probs, rewards):
-        loss = (-log_probs * rewards).sum()
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-    def sample(self, state):
-        action_prob = self.network(torch.FloatTensor(state))
-        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
-        action_dist = Categorical(action_prob)
-        action = action_dist.sample()   # 这里就是根据概率进行采样
-        log_prob = action_dist.log_prob(action)
-        return action.item(), log_prob
-
-# 最後，建立一個 network 和 agent，就可以開始進行訓練了。
-network = PolicyGradientNetwork()
-agent = PolicyGradientAgent(network)
 
 
 class RNADataset(Dataset):
@@ -250,7 +284,7 @@ class Task():
         model = Regression().to(device)
         loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
         optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-        num_epoch = 85
+        num_epoch = 150
 
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
         for epoch in range(num_epoch):
@@ -278,40 +312,12 @@ class Task():
 
 device ="cuda"
 
-# SEQ,wt_efficiency,eSpCas,SpCas9_HF1
-wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean = data_load_nc()
-# 维度互换
-wt_train_x = wt_df_clean["21mer"]
-wt_efficiency = wt_df_clean["Wt_Efficiency"]
-wt_train_x = PREPROCESS_ONE_HOT(wt_train_x,21)
-wt_train_x_for_torch = np.transpose(wt_train_x,(0,2,1))
-# test_x__for_torch = np.transpose(test_x,(0,2,1))
-wt_efficiency_set = RNADataset(wt_train_x_for_torch,wt_efficiency)
-
-eSpCas_train_x = eSpCas_df_clean["21mer"]
-eSpCas_efficiency = eSpCas_df_clean["eSpCas 9_Efficiency"]
-eSpCas_train_x = PREPROCESS_ONE_HOT(eSpCas_train_x,21)
-eSpCas_train_x_for_torch = np.transpose(eSpCas_train_x,(0,2,1))
-eSpCas_set = RNADataset(eSpCas_train_x_for_torch,eSpCas_efficiency)
-
-
-SpCas9_HF1_train_x = SpCas9_HF1_df_clean["21mer"]
-SpCas9_HF1_efficiency = SpCas9_HF1_df_clean["HF1_Efficiency"]
-SpCas9_HF1_train_x = PREPROCESS_ONE_HOT(SpCas9_HF1_train_x,21)
-SpCas9_HF1_train_x_for_torch = np.transpose(SpCas9_HF1_train_x,(0,2,1))
-SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
-
-wt_train_set, wt_val_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537, 4726, 8341])
-eSpCas_train_set, eSpCas_val_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842, 4982,8793])
-# SpCas9_HF1_train_set, SpCas9_HF1_val_set,SpCas9_HF1_test_set = torch.utils.data.random_split(SpCas9_HF1_set, [43518, 4835,8534])
-
-
-# train_x, train_y, test_x, test_y = data_load()
+train_x, train_y, test_x, test_y = data_load()
 # 维度互换
 # train_x_for_torch = np.transpose(train_x,(0,2,1))
 # test_x__for_torch = np.transpose(test_x,(0,2,1))
-# all_train_set = RNADataset(wt_train_set,wt_val_set)
-# test_set = RNADataset(wt_test_set,test_y)
+all_train_set = RNADataset(train_x,train_y)
+test_set = RNADataset(test_x,test_y)
 batch_size = 256
 
 
@@ -319,32 +325,8 @@ batch_size = 256
 
 
 
-train_loader = DataLoader(wt_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(wt_val_set, batch_size=batch_size, shuffle=False)
-
-
-
-def one_hot_decode(feature):
-    # data_n = len(feature)
-    seqs = []
-    for item in feature:
-        oseqs = item.cpu().numpy()
-        oseqs = np.transpose(oseqs,(1,0))
-        seq=""
-        for oseq in oseqs:
-            if oseq[0] == 1.0:
-                seq+="A"
-            elif oseq[1] == 1.0:
-                seq += "C"
-            elif oseq[2] == 1.0:
-                seq += "G"
-            elif oseq[3] == 1.0:
-                seq += "T"
-        seqs.append(seq)
-
-    return seqs
-
-
+train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
 
 
 
@@ -353,26 +335,20 @@ def one_hot_decode(feature):
 def evaluate(model, loss_fn, dataloader, device):
     model.eval()
     epoch_loss = 0.0
-    dftotal = pd.DataFrame(columns=["bp","predict","ground truth"])
     with torch.no_grad():
         for feature, target in dataloader:
             feature, target = feature.to(device), target.to(device)
             output = model(feature)
-            seqs = one_hot_decode(feature)
-            df = pd.DataFrame(columns=["bp","predict","ground truth"])
-            df["bp"] = seqs
-            df["predict"] = output.cpu()
-            df["ground truth"] = target.cpu()
             loss = loss_fn(output, target)
             epoch_loss += loss.item()
-
-            dftotal = dftotal.append(df)
-    return epoch_loss/len(dataloader),df
+    return epoch_loss/len(dataloader)
 
 
 def train_one_epoch(model, loss_fn, dataloader,num_epoch,optimizer, device):
+
+
     train_loss = 0.0
-    count = math.ceil(len(wt_train_x)/batch_size)
+    count = math.ceil(len(train_x)/batch_size)
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
     # 所谓iterations就是完成一次epoch所需的batch个数。
     for i, data in enumerate(dataloader):#这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
@@ -427,8 +403,8 @@ def main():
 
     model = Regression().to(device)
     loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-    num_epoch = 1500
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.003)  # optimizer 使用 Adam
+    num_epoch = 150
 
     # train(model, loss, train_loader, num_epoch, optimizer, device)
     # print(evaluate(model,loss,test_loader,device))
@@ -436,12 +412,7 @@ def main():
     for epoch in range(num_epoch):
         print("epoch:",epoch)
         train_one_epoch(model, loss, train_loader, num_epoch, optimizer, device)
-        avgloss,df = evaluate(model, loss, test_loader, device)
-        print(avgloss)
-        rho, p = spearmanr(df["predict"],df["ground truth"])
-        print("spearman :"+ str(rho))
-        print("p :"+str(p))
-
+        print(evaluate(model, loss, test_loader, device))
     #     train_loss = 0.0
     #     count = math.ceil(len(train_x)/batch_size)
     #     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
@@ -517,4 +488,8 @@ def PREPROCESS(lines):
 if __name__ == '__main__':
     main()
     # reinforcementlearning_main()
+
+
+
+
 

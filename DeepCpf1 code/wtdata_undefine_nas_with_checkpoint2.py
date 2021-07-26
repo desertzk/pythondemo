@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newdebugpadding3.log"),
+        logging.FileHandler("newwtdebugpadding210721.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "checkpoint_last.pt"
+PATH = "wt_undefine_checkpoint_last.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -62,16 +62,14 @@ def one_hot_decode(feature):
 
     return seqs
 
-
-def PREPROCESS_ONE_HOT(train_data):
+def PREPROCESS_ONE_HOT(train_data,mer):
     data_n = len(train_data)
-    SEQ = zeros((data_n, 34, 4), dtype=int)
+    SEQ = zeros((data_n, mer, 4), dtype=int)
     # CA = zeros((data_n, 1), dtype=int)
 
     for l in range(0, data_n):
-
         seq = train_data[l]
-        for i in range(34):
+        for i in range(mer):
             if seq[i] in "Aa":
                 SEQ[l, i, 0] = 1
             elif seq[i] in "Cc":
@@ -101,6 +99,39 @@ def data_load():
     test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
     return SEQ,indel_f,test_SEQ,test_indel_f
 
+
+def data_load_nc():
+    train_data = pd.read_csv('data/DataS1.csv')
+    # test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
+    # use_data = train_data[1:14999]
+    # new_header = test_data.iloc[0]
+    # test_data = test_data[1:]
+    # test_data.index = np.arange(0, len(test_data))
+    # test_data.columns = new_header
+    bp34_col = train_data["21mer"]
+    wt_efficiency = train_data["Wt_Efficiency"]
+    eSpCas = train_data["eSpCas 9_Efficiency"]
+    SpCas9_HF1 = train_data["SpCas9-HF1_Efficiency"]
+    # SEQ = PREPROCESS_ONE_HOT(bp34_col,mer=21)
+
+    wt_df = pd.DataFrame({"21mer":bp34_col,"Wt_Efficiency":wt_efficiency})
+    wt_df_clean = wt_df.dropna()
+    wt_df_clean = wt_df_clean.reset_index(drop=True)
+
+    eSpCas_df = pd.DataFrame({"21mer":bp34_col,"eSpCas 9_Efficiency":eSpCas})
+    eSpCas_df_clean = eSpCas_df.dropna()
+    eSpCas_df_clean = eSpCas_df_clean.reset_index(drop=True)
+
+    SpCas9_HF1_df = pd.DataFrame({"21mer":bp34_col,"HF1_Efficiency":SpCas9_HF1})
+    SpCas9_HF1_df_clean = SpCas9_HF1_df.dropna()
+    SpCas9_HF1_df_clean = SpCas9_HF1_df_clean.reset_index(drop=True)
+
+
+    # test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
+    # test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
+    # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
+    return wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean
+
 class RNADataset(Dataset):
     def __init__(self, x, y=None, transform=None):
         self.x = x.astype("float32")
@@ -115,17 +146,30 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
-train_x, train_y, test_x, test_y = data_load()
-# 维度互换
-train_x_for_torch = np.transpose(train_x,(0,2,1))
-test_x__for_torch = np.transpose(test_x,(0,2,1))
-all_train_set = RNADataset(train_x_for_torch,train_y)
-test_set = RNADataset(test_x__for_torch,test_y)
-batch_size = 512
+wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean = data_load_nc()
+
+wt_train_x = wt_df_clean["21mer"]
+wt_efficiency = wt_df_clean["Wt_Efficiency"]
+wt_train_x = PREPROCESS_ONE_HOT(wt_train_x,21)
+wt_train_x_for_torch = np.transpose(wt_train_x,(0,2,1))
+# test_x__for_torch = np.transpose(test_x,(0,2,1))
+wt_efficiency_set = RNADataset(wt_train_x_for_torch,wt_efficiency)
+
+eSpCas_train_x = eSpCas_df_clean["21mer"]
+eSpCas_efficiency = eSpCas_df_clean["eSpCas 9_Efficiency"]
+eSpCas_train_x = PREPROCESS_ONE_HOT(eSpCas_train_x,21)
+eSpCas_train_x_for_torch = np.transpose(eSpCas_train_x,(0,2,1))
+eSpCas_set = RNADataset(eSpCas_train_x_for_torch,eSpCas_efficiency)
 
 
-train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_set, batch_size=len(test_set), shuffle=False)
+SpCas9_HF1_train_x = SpCas9_HF1_df_clean["21mer"]
+SpCas9_HF1_efficiency = SpCas9_HF1_df_clean["HF1_Efficiency"]
+SpCas9_HF1_train_x = PREPROCESS_ONE_HOT(SpCas9_HF1_train_x,21)
+SpCas9_HF1_train_x_for_torch = np.transpose(SpCas9_HF1_train_x,(0,2,1))
+SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
+
+wt_train_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537+4726, 8341])
+eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842+4982,8793])
 
 activation_functions = {
                 'Sigmoid': nn.Sigmoid(),
@@ -183,7 +227,6 @@ def conv_pre_hook(model, input):
 
 
 def other_pre_hook(model, input):
-
     change_input = input
     if input[0].shape_name[1] == "batch":  #前面有mutiheadattion 交换了 batch
         change_input = input[0].permute(1, 0, 2)
@@ -402,126 +445,11 @@ class Regression(nn.Module):
         layers = []
         last_out = 4 # first time
         conv1d_out_channels = 1
-        last_input = 34 #lenth
+        last_input = 21 #lenth
         # is_first = True
         # for k,params in dict_params.items():
         idx = 0
         last_type = ""
-        # struct_list = [{'embedding': {'embedding_size': {'action': 85, 'log_prob': -2.9925, 'prob':0.0502}}}, {'multiheadattention': {'d_model': {'action': 26,'log_prob': -3.8563}, 'nhead': {'action': 1, 'log_prob':-1.1921e-07}, 'dropout': {'action': 0.05, 'log_prob': -2.2637}}}]
-        # struct_list =[{'conv': {'conv1d_out_channels': {'action': 290}, 'conv1d_kernel_size': {'action': 9},
-        #            'conv_active': {'action': 'ReLU' }, 'conv_padding': {'action': 1}, 'conv_pool': {'action': 4},"conv_batch_norm": {'action': 1},
-        #            'pool_type': {'action': 'max'}, 'conv_dropout': {'action': 0.25}}},
-        #  {'multiheadattention': {'d_model': {'action': 26}, 'nhead': {'action': 1, }, 'dropout': {'action': 0.3}}}]
-        # struct_list = [{'multiheadattention': {'d_model': {'action': 64}, 'nhead': {'action': 1}, 'dropout': {'action': 0}}},
-        #  {'conv': {'conv1d_out_channels': {'action': 220}, 'conv1d_kernel_size': {'action': 1},
-        #            'conv_padding': {'action': 0}}},
-        #  {'conv': {'conv1d_out_channels': {'action': 460}, 'conv1d_kernel_size': {'action': 3},
-        #            'conv_padding': {'action': 1, }}}]
-        # struct_list = [{'batch_norm': {'out': {'action': 0.23, 'log_prob': -2.478663921356201, 'prob': 0.08385518938302994}}},
-        #  {'batch_norm': {'out': {'action': 0.2, 'log_prob': -2.397782325744629, 'prob': 0.0909193605184555}}},
-        #  {'activate': {'active': {'action': 'PReLU', 'log_prob': -2.25961971282959, 'prob': 0.10439017415046692}}},
-        #  {'linear': {'linear_out': {'action': 400, 'log_prob': -3.9718070030212402, 'prob': 0.018839359283447266}}},
-        #  {'linear': {'linear_out': {'action': 50, 'log_prob': -3.8308377265930176, 'prob': 0.02169143594801426}}},
-        #  {'batch_norm': {'out': {'action': 0.23, 'log_prob': -2.4771888256073, 'prob': 0.08397897332906723}}}]
-        # struct_list = [{'activate': {'active': {'action': 'Hardswish', 'log_prob': -2.22917103767395, 'prob': 0.10761760175228119}}},
-        #  {'multiheadattention': {'d_model': {'action': 24, 'log_prob': -3.9771804809570312, 'prob': 0.0187383983284235},
-        #                          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07,
-        #                                    'prob': 0.9999998807907104},
-        #                          'dropout': {'action': 0.15, 'log_prob': -2.301884889602661,
-        #                                      'prob': 0.1000700443983078}}}]
-        # struct_list = [{'activate': {'active': {'action': 'PReLU', 'log_prob': -2.085554599761963, 'prob': 0.12423819303512573}}}, {
-        #     'conv': {
-        #         'conv1d_out_channels': {'action': 190, 'log_prob': -3.890669345855713, 'prob': 0.02043166570365429},
-        #         'conv1d_kernel_size': {'action': 1, 'log_prob': -1.5918627977371216, 'prob': 0.20354607701301575},
-        #         'conv_padding': {'action': 1, 'log_prob': -0.7846781015396118, 'prob': 0.4562665522098541}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 8, 'log_prob': -3.837784767150879, 'prob': 0.02154126577079296},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.3, 'log_prob': -2.265355110168457, 'prob': 0.1037931740283966}}},
-        #  {'linear': {'linear_out': {'action': 10, 'log_prob': -3.7969276905059814, 'prob': 0.022439608350396156}}},
-        #  {'linear': {'linear_out': {'action': 380, 'log_prob': -3.742799997329712, 'prob': 0.023687684908509254}}},
-        #  {'activate': {'active': {'action': 'LeakyReLU', 'log_prob': -2.207721471786499, 'prob': 0.10995089262723923}}},
-        #  {'batch_norm': {'out': {'action': 0.23, 'log_prob': -2.4334616661071777, 'prob': 0.08773260563611984}}}]
-        # struct_list = [{'conv': {'conv1d_out_channels': {'action': 520, 'log_prob': -3.841337203979492, 'prob': 0.021464878693223},
-        #            'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #            'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}}, {
-        #      'conv': {
-        #          'conv1d_out_channels': {'action': 150, 'log_prob': -3.738227367401123, 'prob': 0.02379624731838703},
-        #          'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #          'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}},
-        #  {'dropout': {'dropout': {'action': 0.07, 'log_prob': -0.0002523383009247482, 'prob': 0.9997476935386658}}}, {
-        #      'activate': {
-        #          'active': {'action': 'Hardswish', 'log_prob': -0.00014461133105214685, 'prob': 0.9998553395271301}}}, {
-        #      'conv': {
-        #          'conv1d_out_channels': {'action': 70, 'log_prob': -3.938206434249878, 'prob': 0.01948312669992447},
-        #          'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #          'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 12, 'log_prob': -4.091645240783691, 'prob': 0.01671171560883522},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.07, 'log_prob': -0.0002493573119863868, 'prob': 0.9997506737709045}}},
-        #  {'dropout': {'dropout': {'action': 0.07, 'log_prob': -0.0002492977073416114, 'prob': 0.9997506737709045}}}, {
-        #      'activate': {
-        #          'active': {'action': 'Hardswish', 'log_prob': -0.00014383635425474495, 'prob': 0.999856173992157}}}, {
-        #      'activate': {
-        #          'active': {'action': 'Hardswish', 'log_prob': -0.00014383635425474495, 'prob': 0.999856173992157}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 32, 'log_prob': -1.5695322751998901, 'prob': 0.2081425040960312},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.07, 'log_prob': -0.00024923807359300554, 'prob': 0.9997507929801941}}},
-        #  {'dropout': {'dropout': {'action': 0.07, 'log_prob': -0.00024923807359300554, 'prob': 0.9997507929801941}}}, {
-        #      'conv': {
-        #          'conv1d_out_channels': {'action': 200, 'log_prob': -3.999828338623047, 'prob': 0.01831878162920475},
-        #          'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #          'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 54, 'log_prob': -4.280622959136963, 'prob': 0.01383404154330492},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.07, 'log_prob': -0.00024923807359300554, 'prob': 0.9997507929801941}}}, {
-        #      'conv': {
-        #          'conv1d_out_channels': {'action': 170, 'log_prob': -3.9272782802581787, 'prob': 0.01969720982015133},
-        #          'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #          'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}}, {
-        #      'conv': {
-        #          'conv1d_out_channels': {'action': 470, 'log_prob': -4.0494866371154785, 'prob': 0.017431318759918213},
-        #          'conv1d_kernel_size': {'action': 9, 'log_prob': -0.32823657989501953, 'prob': 0.7201926708221436},
-        #          'conv_padding': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104}}},
-        #  {'dropout': {'dropout': {'action': 0.07, 'log_prob': -0.00024923807359300554, 'prob': 0.9997507929801941}}}]
-        # struct_list = [{'multiheadattention': {
-        #     'd_model': {'action': 54, 'log_prob': -3.8396503925323486, 'prob': 0.021501116454601288},
-        #     'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #     'dropout': {'action': 0.16, 'log_prob': -2.272091865539551, 'prob': 0.10309629142284393}}},
-        #  {'activate': {'active': {'action': 'Hardswish', 'log_prob': -2.0088117122650146, 'prob': 0.1341479867696762}}},
-        #  {'linear': {'linear_out': {'action': 490, 'log_prob': -3.8926076889038086, 'prob': 0.020392099395394325}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 68, 'log_prob': -3.8554282188415527, 'prob': 0.021164538338780403},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.16, 'log_prob': -2.273268222808838, 'prob': 0.10297508537769318}}}, {'conv': {
-        #     'conv1d_out_channels': {'action': 220, 'log_prob': -3.8931093215942383, 'prob': 0.020381871610879898},
-        #     'conv1d_kernel_size': {'action': 3, 'log_prob': -1.592841386795044, 'prob': 0.20334699749946594},
-        #     'conv_padding': {'action': 1, 'log_prob': -0.7488247156143188, 'prob': 0.47292205691337585}}},
-        #  {'dropout': {'dropout': {'action': 0.02, 'log_prob': -2.513493537902832, 'prob': 0.08098482340574265}}},
-        #  {'dropout': {'dropout': {'action': 0.3, 'log_prob': -2.312116861343384, 'prob': 0.0990513488650322}}},
-        #  {'dropout': {'dropout': {'action': 0.02, 'log_prob': -2.5134940147399902, 'prob': 0.08098477870225906}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 84, 'log_prob': -3.946390390396118, 'prob': 0.019324328750371933},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.2, 'log_prob': -2.491770029067993, 'prob': 0.08276333659887314}}},
-        #  {'activate': {'active': {'action': 'ReLU', 'log_prob': -2.093193292617798, 'prob': 0.12329279631376266}}},
-        #  {'activate': {'active': {'action': 'ReLU', 'log_prob': -2.093193292617798, 'prob': 0.12329279631376266}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 80, 'log_prob': -3.988471746444702, 'prob': 0.018528008833527565},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.2, 'log_prob': -2.4917702674865723, 'prob': 0.08276332169771194}}}, {'conv': {
-        #     'conv1d_out_channels': {'action': 210, 'log_prob': -3.842367649078369, 'prob': 0.021442772820591927},
-        #     'conv1d_kernel_size': {'action': 9, 'log_prob': -1.5069791078567505, 'prob': 0.22157832980155945},
-        #     'conv_padding': {'action': 0, 'log_prob': -0.6404067873954773, 'prob': 0.5270779728889465}}}, {
-        #      'multiheadattention': {
-        #          'd_model': {'action': 60, 'log_prob': -3.802097797393799, 'prob': 0.022323893383145332},
-        #          'nhead': {'action': 1, 'log_prob': -1.1920930376163597e-07, 'prob': 0.9999998807907104},
-        #          'dropout': {'action': 0.02, 'log_prob': -2.5134940147399902, 'prob': 0.08098477870225906}}},
-        #  {'linear': {'linear_out': {'action': 300, 'log_prob': -3.8576836585998535, 'prob': 0.02111685648560524}}},
-        #  {'activate': {'active': {'action': 'Hardswish', 'log_prob': -2.006732225418091, 'prob': 0.1344272345304489}}}]
 
         # struct_list = [{'dropout': {'dropout': {'action': 0.16, 'log_prob': -2.341522216796875, 'prob': 0.09618111699819565}}},
         #  {'dropout': {'dropout': {'action': 0.16, 'log_prob': -2.344510555267334, 'prob': 0.09589412063360214}}},
@@ -703,7 +631,7 @@ class Regression(nn.Module):
 '''
 class PolicyGradientNetwork(nn.Module):
 
-    def __init__(self,state,architecture_map=None,hidden_size=64,max_layer=16):
+    def __init__(self,architecture_map=None,hidden_size=64,max_layer=2):
         super().__init__()
         self.architecture_map = architecture_map
 
@@ -791,7 +719,7 @@ class PolicyGradientNetwork(nn.Module):
 
             layer_type = action_index.item()
             total_log_prob += type_log_prob
-            # 0 conv 1 linear 2 "embedding" 3 mutiheadattention 4 end 5 activate function 6 batch norm 7 dropout 8 LayerNorm
+            # 0 conv 1 linear 2 "embedding" 3 end 4 end 5 activate function 6 batch norm 7 dropout 8 LayerNorm
             if layer_type is 0:
                 action_prob_map["conv"] = {}
                 for k, v in self.architecture_map["conv"].items():
@@ -850,6 +778,9 @@ class PolicyGradientNetwork(nn.Module):
                     element_count += 1
                     total_log_prob += log_prob
             elif layer_type is 3:
+                # element_count += 1
+                # total_log_prob += torch.tensor(-3.0)
+
                 break
             elif layer_type is 4:
                 action_prob_map["activate"] = {}
@@ -1005,7 +936,7 @@ class PolicyGradientAgent():
 
         self.linear40_40_out_features_list = [i for i in range(500) if i>2 and i%10==0]#[10,20,40,80]
         self.need_pool = [0,1]
-        tp_size = train_x_for_torch[0].shape
+
 
 
         self.architecture_map ={
@@ -1054,8 +985,8 @@ class PolicyGradientAgent():
 
         self.action_list = []
 
-        self.network = PolicyGradientNetwork(tp_size,self.architecture_map).to(device)
-        self.optimizer = optim.SGD(self.network.parameters(),lr=0.005)
+        self.network = PolicyGradientNetwork(self.architecture_map).to(device)
+        self.optimizer = optim.SGD(self.network.parameters(),lr=0.00001)
         self.try_load_checkpoint()
 
 
@@ -1088,7 +1019,7 @@ class PolicyGradientAgent():
 
 
 
-    def learn1(self, rewards,log_prob):
+    def learn(self, rewards,log_prob):
         # 损失函数要是一个式子
         loss = -torch.mean(log_prob)*rewards
         logging.info("reinfor loss "+str(loss))
@@ -1098,7 +1029,7 @@ class PolicyGradientAgent():
         self.checkpoint_save(loss, 1, rewards)
 
 
-    def learn(self, rewards,log_prob):
+    def learn1(self, rewards,log_prob):
         # 损失函数要是一个式子
         x = -torch.mean(log_prob)*rewards/1000
         loss = pow(0.5,x)
@@ -1161,7 +1092,7 @@ class PolicyGradientAgent():
         action_prob_map,new_state,total_log_prob,element_count = self.network(state,self.conv_num,self.linear_num) #torch.cuda.FloatTensor(
         # action_prob = torch.sum(item_action_prob,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
         if len(action_prob_map) is 0:
-            return None,None,None
+            return None,total_log_prob,None
         regression_params = {}
         self.total_log_prob = total_log_prob
         # self.sample_action(action_prob_map,regression_params)
@@ -1205,7 +1136,7 @@ class Task():
     def train(self,model,train_loader):
         # model.register_forward_hook(hook_layer("11"))
 
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.0025)  # optimizer 使用 Adam
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)  # optimizer 使用 Adam
 
         num_epoch = 40
 
@@ -1257,51 +1188,6 @@ class Task():
 
 
 
-
-
-
-def evaluate(model, loss_fn, dataloader, device):
-    model.eval()
-    epoch_loss = 0.0
-    with torch.no_grad():
-        for feature, target in dataloader:
-            feature, target = feature.to(device), target.to(device)
-            output = model(feature)
-            loss = loss_fn(output, target)
-            epoch_loss += loss.item()
-    return epoch_loss/len(dataloader)
-
-
-
-
-
-
-def train(model, loss_fn, dataloader,num_epoch,optimizer, device):
-
-    # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
-    for epoch in range(num_epoch):
-        train_loss = 0.0
-        count = math.ceil(len(train_x)/batch_size)
-        model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
-        # 所谓iterations就是完成一次epoch所需的batch个数。
-        for i, data in enumerate(dataloader):#这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
-            optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
-
-            # logging.info(j)
-            # input = data[0].unsqueeze(0)
-            train_pred = model(data[0].to(device=device))  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數  input (72,3,128,128)
-            batch_loss = loss_fn(train_pred, data[1].to(device=device))  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
-            batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
-            # logging.info(str(i))
-            optimizer.step()  # 以 optimizer 用 gradient 更新參數值
-
-            # train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
-            train_loss += batch_loss.item()
-
-
-        logging.info("Epoch :", epoch ,"train_loss:",train_loss/count)
-
-
 max_reward = -9999999
 max_spearman = 0
 
@@ -1337,22 +1223,28 @@ def reinforcementlearning_main():
     state = torch.zeros(1, hidden_size, dtype=torch.float, device=device)
 
     for batch in range(NUM_BATCH):
-        train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(train_set, val_set)
+        # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
+        task = Task(wt_train_set, wt_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
         actionparam,log_prob,newstate = agent.sample(state)
         if actionparam is None:
+            logging.info("len 1   -1000")
+            reward = -1000
+            # log_prob = torch.tensor(-3.0) #不能这里设置
+            agent.learn(reward, log_prob)
             continue
+
+        struct_len = len(actionparam)
         # new_conv_num = actionparam["conv_num"]
         # new_linear_num = actionparam["linear_num"]
         try:
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(val_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(wt_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(wt_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
@@ -1363,8 +1255,10 @@ def reinforcementlearning_main():
 
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
             mean_loss = action_loss*0.15+evaluate_loss*0.85
-            spearman_reward = (rho - 0.74) * 1000
-            reward = 700 - mean_loss + spearman_reward
+            spearman_reward = rho * 1000
+            struct_factor = 700/struct_len
+            base_line = 650
+            reward = spearman_reward - struct_factor-base_line
             global max_reward
             global max_spearman
 
@@ -1385,11 +1279,11 @@ def reinforcementlearning_main():
                     logging.info("new reward:***********************3333")
 
             if reward > 0:
-                reward = reward * 1.2
+                # reward = reward * 1.2
                 logging.info("reward:***********************1.2")
                 logging.info("reward:"+str(reward)+"mean_loss:"+str(mean_loss)+" action_loss"+str(action_loss)+"evaluate_loss"+str(evaluate_loss)+"spearmanr "+str(rho) + " p "+str(p))
 
-            logging.info("reward:"+str(reward)+"mean_loss:"+str(mean_loss)+" action_loss"+str(action_loss)+"evaluate_loss"+str(evaluate_loss)+"spearmanr "+str(rho) + " p "+str(p))
+            logging.info("reward:"+str(reward)+"struct_factor:"+str(struct_factor)+" spearman_reward"+str(spearman_reward)+"evaluate_loss"+str(evaluate_loss)+"spearmanr "+str(rho) + " p "+str(p))
             agent.learn(reward,log_prob)
         except ValueError as vex:
             logging.info("!!!!!!!!!!"+str(vex)+"!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
