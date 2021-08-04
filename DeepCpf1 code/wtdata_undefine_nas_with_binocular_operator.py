@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210618.log"),
+        logging.FileHandler("newwtdebugpadding210731.log"),
         logging.StreamHandler()
     ]
 )
@@ -171,18 +171,7 @@ SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
 wt_train_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537+4726, 8341])
 eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842+4982,8793])
 
-activation_functions = {
-                'Sigmoid': nn.Sigmoid(),
-                'Tanh': nn.Tanh(),
-                'ReLU': nn.ReLU(),
-                'LeakyReLU': nn.LeakyReLU(),
-                'ELU': nn.ELU(),
-                'Hardshrink': nn.Hardshrink(),
-                'Hardswish': nn.Hardswish(),
-                'ReLU6': nn.ReLU6(),
-                'PReLU': nn.PReLU(),
-                # 'None': nn.Identity()
-            }
+
 
 pooling_funtion = {
     'avg':nn.AvgPool1d,
@@ -227,9 +216,14 @@ def conv_pre_hook(model, input):
 
 
 def other_pre_hook(model, input):
-    change_input = input
-    if input[0].shape_name[1] == "batch":  #前面有mutiheadattion 交换了 batch
-        change_input = input[0].permute(1, 0, 2)
+    c_idx = input[0].shape_name.index("hot")
+    b_idx = input[0].shape_name.index("batch")
+    l_idx = input[0].shape_name.index("len")
+    change_input = input[0].permute(b_idx, l_idx, c_idx)
+
+
+    # if input[0].shape_name[1] == "batch":  #前面有mutiheadattion 交换了 batch
+    #     change_input = input[0].permute(1, 0, 2)
     if type(change_input) is tuple:
         change_input = input[0].flatten(1, -1)
         change_input = (change_input)
@@ -269,12 +263,30 @@ def active_after_hook(model, input,result):
         result.shape_name = ("batch","hot", "len")
     return result
 
+def active_pre_hook(model, input):
+    # 如果是前面有conv的需要换位指定 c
+    # (N,C,L)
+    c_idx = input[0].shape_name.index("hot")
+    b_idx = input[0].shape_name.index("batch")
+    l_idx = input[0].shape_name.index("len")
+    change_input = input[0].permute(b_idx, c_idx, l_idx)
+    return change_input
+
 def dropout_after_hook(model, input,result):
     # 如果是前面有conv的需要换位指定 c
     # (N,C,L)
     if input[0].ndim == 3:
         result.shape_name = ("batch","hot", "len")
     return result
+
+def dropout_pre_hook(model, input):
+    # 如果是前面有conv的需要换位指定 c
+    # (N,C,L)
+    c_idx = input[0].shape_name.index("hot")
+    b_idx = input[0].shape_name.index("batch")
+    l_idx = input[0].shape_name.index("len")
+    change_input = input[0].permute(b_idx, c_idx, l_idx)
+    return change_input
 
 def linear_pre_hook(model, input):
     change_input = input
@@ -482,6 +494,8 @@ class MySequential(nn.Sequential):
         # old_layer_num = -1
         for k,module in self:
             # print(input.shape,input.shape_name)
+            # if input.shape[0] ==159:
+            #     print("rerw")
             # 这里的model要根据input适应一下
             channel_idx = input.shape_name.index("hot")
             channel = input.shape[channel_idx]
@@ -563,11 +577,13 @@ class MySequential(nn.Sequential):
                     l_first = firstret2.shape[1]
                     l_module = moduleret2.shape[1]
                     if l_first > l_module:
+                        remain = (l_first - l_module)%2
                         pad_size = int((l_first - l_module)/2)
-                        moduleret2 = torch.nn.functional.pad(moduleret2,(0,0,pad_size,pad_size),"constant",0)
+                        moduleret2 = torch.nn.functional.pad(moduleret2,(0,0,pad_size,pad_size+remain),"constant",0)
                     elif l_module > l_first:
+                        remain = (l_first - l_module) % 2
                         pad_size = int((l_module - l_first)/2)
-                        firstret2 = torch.nn.functional.pad(firstret2,(0,0,pad_size,pad_size),"constant",0)
+                        firstret2 = torch.nn.functional.pad(firstret2,(0,0,pad_size,pad_size+remain),"constant",0)
                     input1 = torch.cat((firstret2,moduleret2),2) # should concat 传0应该是扩充第一个维度
                     input1.shape_name = ("batch","len","hot")
             else:
@@ -594,6 +610,7 @@ class Regression(nn.Module):
         idx = 0
         last_type = ""
 
+        # struct_list =
 
         # 这里最好写成递归的模式
         for dict_struct in struct_list:
@@ -689,7 +706,7 @@ class Regression(nn.Module):
             last_out = d_model * last_input
         else:
             last_out = last_out * last_input
-        self.linear_1 = nn.Linear(last_out, 1)  # (None, 1)
+        self.linear_1 = nn.Linear(1, 1)  # (None, 1)
         self.linear_1.register_forward_pre_hook(other_pre_hook)
 
     def make_layer(self,dict_params,last_out,last_input):
@@ -754,11 +771,25 @@ class Regression(nn.Module):
             #     last_out = embedding_size
             elif layer_type is "activate":
                 active = dict_params.get("active").get("action")
+                activation_functions = {
+                    'Sigmoid': nn.Sigmoid(),
+                    'Tanh': nn.Tanh(),
+                    'ReLU': nn.ReLU(),
+                    'LeakyReLU': nn.LeakyReLU(),
+                    'ELU': nn.ELU(),
+                    'Hardshrink': nn.Hardshrink(),
+                    'Hardswish': nn.Hardswish(),
+                    'ReLU6': nn.ReLU6(),
+                    'PReLU': nn.PReLU(),
+                    # 'None': nn.Identity()
+                }
                 layer_model = activation_functions[active]
+                layer_model.register_forward_pre_hook(active_pre_hook)
                 layer_model.register_forward_hook(active_after_hook)
             elif layer_type is "dropout":
                 dropout = dict_params.get("dropout").get("action")
                 layer_model = nn.Dropout(p=dropout)
+                layer_model.register_forward_pre_hook(dropout_pre_hook)
                 layer_model.register_forward_hook(dropout_after_hook)
             elif layer_type is "batch_norm":
                 # batch_norm_out = dict_params.get("out").get("action")
@@ -778,7 +809,6 @@ class Regression(nn.Module):
 
                 layer_model.register_forward_pre_hook(polling_pre_hook)
                 layer_model.register_forward_hook(polling_after_hook)
-
         return layer_model, last_out, last_input,d_model
 
     def forward(self, x):
@@ -788,10 +818,12 @@ class Regression(nn.Module):
         len_idx = out.shape_name.index("len")
         channel = out.shape[channel_idx]
         len = out.shape[len_idx]
-        if channel
-            last_out = channel*len
-            self.linear_1 = nn.Linear(last_out, 1)  # (None, 1)
+        last_out = channel * len
+        if last_out!=self.linear_1.in_features:
+            self.linear_1 = nn.Linear(last_out, 1).to(device)  # (None, 1)
             self.linear_1.register_forward_pre_hook(other_pre_hook)
+
+        # batch的数值是不能动的 因为后面求loss根据的graoud true 一个batch是512
         out = self.linear_1(out)
 
         result = out.squeeze(1)
@@ -806,7 +838,7 @@ class Regression(nn.Module):
 
 '''
 class PolicyGradientNetwork(nn.Module):
-    def __init__(self,architecture_map=None,hidden_size=64,max_layer=16):
+    def __init__(self,architecture_map=None,hidden_size=64,max_layer=20):
         super().__init__()
         self.architecture_map = architecture_map
 
@@ -820,7 +852,8 @@ class PolicyGradientNetwork(nn.Module):
         # for i in state:
         #     state_size = state_size * i
         state_size = hidden_size
-
+        self.total_log_prob = 0
+        self.element_count = 0
         self.lstm1 = nn.LSTMCell(state_size, hidden_size)
         self.struct_map = {}
         self.c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
@@ -878,8 +911,9 @@ class PolicyGradientNetwork(nn.Module):
         list_type_prob.append((action_index.item(), type_prob.item()))
 
         layer_type = action_index.item()
-        # total_log_prob += type_log_prob
-        total_log_prob_list.append(type_log_prob)
+        self.element_count +=1
+        self.total_log_prob += type_log_prob
+        # total_log_prob_list.append(type_log_prob)
 
         # 0 conv 1 linear 2 multiheadattention 3 end 4  activate function 6 batch norm 5 dropout 8 LayerNorm
         if layer_type is 0:
@@ -899,9 +933,9 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["conv"][k_str]["action"] = action
                 action_prob_map["conv"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["conv"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
-                total_log_prob_list.append(log_prob)
+                self.element_count += 1
+                self.total_log_prob += log_prob
+                # total_log_prob_list.append(log_prob)
         elif layer_type is 1:
             action_prob_map["linear"] = {}
             for k, v in self.architecture_map["linear"].items():
@@ -918,9 +952,9 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["linear"][k_str]["action"] = action
                 action_prob_map["linear"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["linear"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
-                total_log_prob_list.append(log_prob)
+                self.element_count += 1
+                self.total_log_prob += log_prob
+                # total_log_prob_list.append(log_prob)
         elif layer_type is 2:  # "multiheadattention"
             action_prob_map["multiheadattention"] = {}
             for k, v in self.architecture_map["multiheadattention"].items():
@@ -939,9 +973,9 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["multiheadattention"][k_str]["action"] = action
                 action_prob_map["multiheadattention"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["multiheadattention"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
-                total_log_prob_list.append(log_prob)
+                self.element_count += 1
+                self.total_log_prob += log_prob
+                # total_log_prob_list.append(log_prob)
         elif layer_type is 3:
             return h_t, c_t,action_prob_map
         elif layer_type is 4:
@@ -962,8 +996,8 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["activate"][k_str]["action"] = action
                 action_prob_map["activate"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["activate"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
+                self.element_count += 1
+                self.total_log_prob += log_prob
                 total_log_prob_list.append(log_prob)
         elif layer_type is 5:
             action_prob_map["dropout"] = {}
@@ -983,8 +1017,8 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["dropout"][k_str]["action"] = action
                 action_prob_map["dropout"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["dropout"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
+                self.element_count += 1
+                self.total_log_prob += log_prob
                 total_log_prob_list.append(log_prob)
         elif layer_type is 6:
             action_prob_map["batch_norm"] = {}
@@ -1004,8 +1038,8 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["batch_norm"][k_str]["action"] = action
                 action_prob_map["batch_norm"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["batch_norm"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
+                self.element_count += 1
+                self.total_log_prob += log_prob
                 total_log_prob_list.append(log_prob)
         elif layer_type is 7:
             action_prob_map["pooling"] = {}
@@ -1025,9 +1059,9 @@ class PolicyGradientNetwork(nn.Module):
                 action_prob_map["pooling"][k_str]["action"] = action
                 action_prob_map["pooling"][k_str]["log_prob"] = log_prob.item()
                 action_prob_map["pooling"][k_str]["prob"] = prob.item()
-                # element_count += 1
-                # total_log_prob += log_prob
-                total_log_prob_list.append(log_prob)
+                self.element_count += 1
+                self.total_log_prob += log_prob
+                # total_log_prob_list.append(log_prob)
         # elif layer_type is 2: #"embedding" # 之后单独处理
         #     action_prob_map["embedding"] = {}
         #     for k, v in self.architecture_map["embedding"].items():
@@ -1060,11 +1094,12 @@ class PolicyGradientNetwork(nn.Module):
         # action_prob_list = []
         # hid1 = torch.tanh(self.fc1(flt))
         # hid2 = torch.tanh(self.fc2(hid1))
-        total_log_prob = 0
-        element_count = 0
+        # total_log_prob = 0
+        # element_count = 0
         list_struct = []
         total_log_prob_list = []
-
+        self.total_log_prob = 0
+        self.element_count = 0
 
         c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
         h_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
@@ -1083,6 +1118,8 @@ class PolicyGradientNetwork(nn.Module):
             operator_index = operator_dist.sample()
             operator_log_prob = operator_dist.log_prob(
                 operator_index)  # log_prob returns the log of the probability density/mass function evaluated at the given sample value.
+            self.element_count += 1
+            self.total_log_prob += log_prob
             operator_prob = torch.exp(operator_log_prob)
             operator_index = operator_index.item()
             # 0 add 1 subtract 2 concat 3 unary
@@ -1154,7 +1191,8 @@ class PolicyGradientNetwork(nn.Module):
 
 
                 layer_type = action_index.item()
-                total_log_prob += type_log_prob
+                self.element_count+=1
+                self.total_log_prob += type_log_prob
                 total_log_prob_list.append(type_log_prob)
 
                 # 0 conv 1 linear 2 "multiheadattention" 3 end 4  activate function 6 batch norm 5 dropout 8 LayerNorm
@@ -1175,8 +1213,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["conv"][k_str]["action"] = action
                         action_prob_map["conv"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["conv"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 1:
                     action_prob_map["linear"] = {}
@@ -1194,8 +1232,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["linear"][k_str]["action"] = action
                         action_prob_map["linear"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["linear"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 2: #"multiheadattention"
                     action_prob_map["multiheadattention"] = {}
@@ -1215,8 +1253,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["multiheadattention"][k_str]["action"] = action
                         action_prob_map["multiheadattention"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["multiheadattention"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 3:
                     break
@@ -1238,8 +1276,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["activate"][k_str]["action"] = action
                         action_prob_map["activate"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["activate"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 5:
                     action_prob_map["dropout"] = {}
@@ -1259,8 +1297,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["dropout"][k_str]["action"] = action
                         action_prob_map["dropout"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["dropout"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 6:
                     action_prob_map["batch_norm"] = {}
@@ -1280,8 +1318,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["batch_norm"][k_str]["action"] = action
                         action_prob_map["batch_norm"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["batch_norm"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 elif layer_type is 7:
                     action_prob_map["pooling"] = {}
@@ -1301,8 +1339,8 @@ class PolicyGradientNetwork(nn.Module):
                         action_prob_map["pooling"][k_str]["action"] = action
                         action_prob_map["pooling"][k_str]["log_prob"] = log_prob.item()
                         action_prob_map["pooling"][k_str]["prob"] = prob.item()
-                        element_count += 1
-                        total_log_prob += log_prob
+                        self.element_count += 1
+                        self.total_log_prob += log_prob
                         total_log_prob_list.append(log_prob)
                 # elif layer_type is 2: #"embedding" # 之后单独处理
                 #     action_prob_map["embedding"] = {}
@@ -1331,7 +1369,7 @@ class PolicyGradientNetwork(nn.Module):
                 list_struct.append(operator)
         logging.info("type index  type prob" + str(list_type_prob))
 
-        return list_struct,h_t,total_log_prob,element_count,total_log_prob_list
+        return list_struct,h_t,self.total_log_prob,self.element_count,total_log_prob_list
 
 
     def sample(self,item_action_prob):
@@ -1370,7 +1408,7 @@ class PolicyGradientAgent():
         self.pool_type_list = ['avg','max']
         self.pool_kernel_list = [2,3,4]
         self.padding_list = [0,1]
-        self.conv1d_out_channels_list = [i for i in range(521) if i>9 and i%10==0] #[80,90,100,110]
+        self.conv1d_out_channels_list = [i for i in range(321) if i>9 and i%5==0] #[80,90,100,110]
         self.conv1d_kernel_size_list = [1,3,5,7,9]  #[7,5,1]
         self.drop_out_list = [0.02,0.05,0.1,0.15,0.2,0.07,0.12,0.16,0.23,0.25,0.3]
         self.conv_num_list = [1,2,3,4]
@@ -1378,7 +1416,7 @@ class PolicyGradientAgent():
         self.conv_batch_norm_list = [0,1]
         self.batch_norm_list = [0, 1]
 
-        self.linear40_40_out_features_list = [i for i in range(500) if i>2 and i%10==0]#[10,20,40,80]
+        self.linear40_40_out_features_list = [i for i in range(300) if i>2 and i%5==0]#[10,20,40,80]
         self.need_pool = [0,1]
 
 
@@ -1541,7 +1579,7 @@ class PolicyGradientAgent():
         # self.sample_action(action_prob_map,regression_params)
 
         # 这里注意也要改
-        # avg_log_prob = total_log_prob_list/len(total_log_prob_list)
+        avg_log_prob = total_log_prob/element_count
 
 
         # regression_params = {
@@ -1555,7 +1593,7 @@ class PolicyGradientAgent():
 
 
         logging.info(action_prob_map)
-        return action_prob_map,total_log_prob_list,new_state
+        return action_prob_map,avg_log_prob,new_state
 
 
 
@@ -1650,31 +1688,6 @@ def evaluate(model, loss_fn, dataloader, device):
 
 
 
-def train(model, loss_fn, dataloader,num_epoch,optimizer, device):
-
-    # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
-    for epoch in range(num_epoch):
-        train_loss = 0.0
-        count = math.ceil(len(train_x)/batch_size)
-        model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
-        # 所谓iterations就是完成一次epoch所需的batch个数。
-        for i, data in enumerate(dataloader):#这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
-            optimizer.zero_grad()  # 用 optimizer 將 model 參數的 gradient 歸零
-
-            # logging.info(j)
-            # input = data[0].unsqueeze(0)
-            train_pred = model(data[0].to(device=device))  # 利用 model 得到預測的機率分佈 這邊實際上就是去呼叫 model 的 forward 函數  input (72,3,128,128)
-            batch_loss = loss_fn(train_pred, data[1].to(device=device))  # 計算 loss （注意 prediction 跟 label 必須同時在 CPU 或是 GPU 上） groud truth - train_pred
-            batch_loss.backward()  # 利用 back propagation 算出每個參數的 gradient
-            # logging.info(str(i))
-            optimizer.step()  # 以 optimizer 用 gradient 更新參數值
-
-            # train_acc += np.sum(np.argmax(train_pred.cpu().data.numpy(), axis=1) == data[1].numpy())#和groud thuth 比较看正确率
-            train_loss += batch_loss.item()
-
-
-        logging.info("Epoch :", epoch ,"train_loss:",train_loss/count)
-
 
 max_reward = -9999999
 max_spearman = 0
@@ -1716,8 +1729,8 @@ def reinforcementlearning_main():
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
-        actionparam,total_log_prob_list,newstate = agent.sample(state)
-        log_prob = torch.Tensor(total_log_prob_list)
+        actionparam,log_prob,newstate = agent.sample(state)
+
         if actionparam is None:
             logging.info("len 1   -1000")
             reward = -1000

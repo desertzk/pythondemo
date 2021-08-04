@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210721.log"),
+        logging.FileHandler("newwtdebugpadding210803.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "wt_undefine_checkpoint_last.pt"
+PATH = "eSpCas_undefine_checkpoint_last.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -171,18 +171,7 @@ SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
 wt_train_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537+4726, 8341])
 eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842+4982,8793])
 
-activation_functions = {
-                'Sigmoid': nn.Sigmoid(),
-                'Tanh': nn.Tanh(),
-                'ReLU': nn.ReLU(),
-                'LeakyReLU': nn.LeakyReLU(),
-                'ELU': nn.ELU(),
-                'Hardshrink': nn.Hardshrink(),
-                'Hardswish': nn.Hardswish(),
-                'ReLU6': nn.ReLU6(),
-                'PReLU': nn.PReLU(),
-                # 'None': nn.Identity()
-            }
+
 
 pooling_funtion = {
     'avg':nn.AvgPool1d,
@@ -569,6 +558,18 @@ class Regression(nn.Module):
                 #     last_out = embedding_size
                 elif layer_type is "activate":
                     active = dict_params.get("active").get("action")
+                    activation_functions = {
+                        'Sigmoid': nn.Sigmoid(),
+                        'Tanh': nn.Tanh(),
+                        'ReLU': nn.ReLU(),
+                        'LeakyReLU': nn.LeakyReLU(),
+                        'ELU': nn.ELU(),
+                        'Hardshrink': nn.Hardshrink(),
+                        'Hardswish': nn.Hardswish(),
+                        'ReLU6': nn.ReLU6(),
+                        'PReLU': nn.PReLU(),
+                        # 'None': nn.Identity()
+                    }
                     layers.append(activation_functions[active])
                 elif layer_type is "dropout":
                     dropout = dict_params.get("dropout").get("action")
@@ -631,7 +632,7 @@ class Regression(nn.Module):
 '''
 class PolicyGradientNetwork(nn.Module):
 
-    def __init__(self,architecture_map=None,hidden_size=64,max_layer=2):
+    def __init__(self,architecture_map=None,hidden_size=64,max_layer=22):
         super().__init__()
         self.architecture_map = architecture_map
 
@@ -1097,7 +1098,7 @@ class PolicyGradientAgent():
         self.total_log_prob = total_log_prob
         # self.sample_action(action_prob_map,regression_params)
 
-        # 这里注意也要改
+        #
         avg_log_prob = self.total_log_prob/element_count
 
 
@@ -1224,7 +1225,9 @@ def reinforcementlearning_main():
 
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(wt_train_set, wt_test_set)
+
+        # task = Task(wt_train_set, wt_test_set)
+        task = Task(eSpCas_train_set, eSpCas_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -1243,8 +1246,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(wt_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(wt_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(eSpCas_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(eSpCas_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
