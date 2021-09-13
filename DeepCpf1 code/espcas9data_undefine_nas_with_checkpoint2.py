@@ -922,7 +922,6 @@ class PolicyGradientAgent():
         self.layer = 2
         self.conv_num = 2
         self.linear_num = 2
-
         self.activation_functions_list = ['Sigmoid','Tanh','ReLU','LeakyReLU','ELU','Hardswish','ReLU6','PReLU']
         self.pool_type_list = ['avg','max']
         self.pool_kernel_list = [2,3,4]
@@ -937,8 +936,6 @@ class PolicyGradientAgent():
 
         self.linear40_40_out_features_list = [i for i in range(500) if i>2 and i%10==0]#[10,20,40,80]
         self.need_pool = [0,1]
-
-
 
         self.architecture_map ={
             "conv":{
@@ -965,7 +962,7 @@ class PolicyGradientAgent():
             },
             "multiheadattention":{
                 "d_model": [i for i in range(100) if i>2 and i%2==0],
-                "nhead":[1],#因为dmodel% nhead要等于0
+                "nhead":[1, 2, 3, 4, 5, 6, 7, 8, 9],#因为dmodel% nhead要等于0
                 "dropout":self.drop_out_list
             },
             "<end>":{},

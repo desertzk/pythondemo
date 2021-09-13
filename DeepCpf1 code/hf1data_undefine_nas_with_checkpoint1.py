@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210616.log"),
+        logging.FileHandler("newwtdebugpadding210814.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "wt_undefine_checkpoint_last.pt"
+PATH = "hf_undefine_checkpoint_last.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -245,7 +245,6 @@ def polling_pre_hook(model, input):
     change_input = input
     #  (N, C, L)(N,C,L) and output (N, C, L_{out})(N,C,L
     # out
-    # ​
     #  )
 
     c_idx = input[0].shape_name.index("hot")
@@ -426,45 +425,14 @@ class MySequential(nn.Sequential):
         else:
             return self._get_item_by_idx(self._modules.values(), idx)
 
-    def change_model_input(self,channel,module):
-        if type(module) is nn.Conv1d:
-            module.in_channels = channel
-            module = nn.Conv1d(channel,module.out_channels,module.kernel_size,module.stride,module.padding,padding_mode=module.padding_mode).to(device)
-            module.register_forward_pre_hook(conv_pre_hook)
-            module.register_forward_hook(conv_after_forward)
-        elif type(module) is nn.MultiheadAttention:
-            module = nn.MultiheadAttention(channel,module.num_heads, dropout=module.dropout).to(device)
-            module.register_forward_pre_hook(mutiheadattention_pre_hook)
-            module.register_forward_hook(mutiheadattention_after_forward)
-        elif type(module) is nn.Linear:
-            module = nn.Linear(channel,module.out_features).to(device)
-            module.register_forward_pre_hook(linear_pre_hook)
-            module.register_forward_hook(linear_after_hook)
-        elif type(module) is nn.BatchNorm1d:
-            module = nn.BatchNorm1d(channel).to(device)
-            module.register_forward_pre_hook(batch_norm_pre_hook)
-            module.register_forward_hook(batch_norm_after_hook)
-
-        return module
-
     def forward(self, input):
         for module in self:
             # print(input.shape)
-            channel_idx = input.shape_name.index("hot")
-            channel = input.shape[channel_idx]
-            module2 = self.change_model_input(channel,module)
-            # print(module)
             input1 = module(input)
-            input2 = module2(input)
-            # print("input1"+str(input1))
-            # print("input2"+str(input2))
             if not hasattr(input1,"shape_name"):
                 input1.shape_name = input.shape_name
             input = input1
         return input1
-
-
-
 
 
 
@@ -502,20 +470,10 @@ class Regression(nn.Module):
         #          'conv_padding': {'action': 1, 'log_prob': -0.6679670810699463, 'prob': 0.5127499103546143}}},
         #  {'batch_norm': {'out': {'action': 0.07, 'log_prob': -2.3047401905059814, 'prob': 0.099784716963768}}},
         #  {'activate': {'active': {'action': 'Sigmoid', 'log_prob': -2.0405666828155518, 'prob': 0.12995505332946777}}}]
-        # struct_list = [{'batch_norm': {'out': {'action': 0.2, 'log_prob': -2.456181764602661, 'prob': 0.08576178550720215}}},
-        #                {'activate': {'active': {'action': 'Hardswish', 'log_prob': -2.1224687099456787, 'prob': 0.11973567306995392}}},
-        #                {'dropout': {'dropout': {'action': 0.02, 'log_prob': -2.4092676639556885, 'prob': 0.08988109976053238}}},
-        #                {'pooling': {'pool_type': {'action': 'avg', 'log_prob': -0.75360506772995, 'prob': 0.47066670656204224},
-        #                             'conv_pool': {'action': 4, 'log_prob': -1.0016419887542725, 'prob': 0.3672758936882019}}}]
-        struct_list =[{'dropout': {'dropout': {'action': 0.1, 'log_prob': -2.4327099323272705, 'prob': 0.0877985805273056}}}, {
-            'pooling': {'pool_type': {'action': 'max', 'log_prob': -0.6335934996604919, 'prob': 0.5306813716888428},
-                        'conv_pool': {'action': 3, 'log_prob': -1.159303069114685, 'prob': 0.3137047290802002}}},
-         {'activate': {'active': {'action': 'Tanh', 'log_prob': -2.1425063610076904, 'prob': 0.11736032366752625}}}, {
-             'conv': {
-                 'conv1d_out_channels': {'action': 10, 'log_prob': -3.9219133853912354, 'prob': 0.01980316825211048},
-                 'conv1d_kernel_size': {'action': 1, 'log_prob': -1.5240139961242676, 'prob': 0.21783575415611267},
-                 'conv_padding': {'action': 0, 'log_prob': -0.6826008558273315, 'prob': 0.5053010582923889}}},
-         {'batch_norm': {'out': {'action': 0.07, 'log_prob': -2.430762767791748, 'prob': 0.08796971291303635}}}]
+        # struct_list = [{'pooling': {'pool_type': {'action': 'avg', 'log_prob': -0.7400567531585693, 'prob': 0.4770868122577667},
+        #               'conv_pool': {'action': 2, 'log_prob': -1.1272640228271484, 'prob': 0.32391828298568726}}}, {
+        #      'pooling': {'pool_type': {'action': 'avg', 'log_prob': -0.7400162220001221, 'prob': 0.4771061837673187},
+        #                  'conv_pool': {'action': 3, 'log_prob': -1.1896824836730957, 'prob': 0.3043178617954254}}}]
 
         for dict_struct in struct_list:
             for layer_type, dict_params in dict_struct.items():
@@ -611,6 +569,18 @@ class Regression(nn.Module):
                 #     last_out = embedding_size
                 elif layer_type is "activate":
                     active = dict_params.get("active").get("action")
+                    activation_functions = {
+                        'Sigmoid': nn.Sigmoid(),
+                        'Tanh': nn.Tanh(),
+                        'ReLU': nn.ReLU(),
+                        'LeakyReLU': nn.LeakyReLU(),
+                        'ELU': nn.ELU(),
+                        'Hardshrink': nn.Hardshrink(),
+                        'Hardswish': nn.Hardswish(),
+                        'ReLU6': nn.ReLU6(),
+                        'PReLU': nn.PReLU(),
+                        # 'None': nn.Identity()
+                    }
                     layers.append(activation_functions[active])
                 elif layer_type is "dropout":
                     dropout = dict_params.get("dropout").get("action")
@@ -642,7 +612,6 @@ class Regression(nn.Module):
 
         # self.sequential = nn.Sequential(*layers)
         self.sequential = MySequential(*layers)
-
         if last_type == "conv" or last_type == "pooling":
             last_out = last_out * last_input
         elif last_type == "multiheadattention":
@@ -655,6 +624,7 @@ class Regression(nn.Module):
 
 
     def forward(self, x):
+
         x.shape_name = ("batch","hot","len")
         out = self.sequential(x)
 
@@ -673,7 +643,7 @@ class Regression(nn.Module):
 '''
 class PolicyGradientNetwork(nn.Module):
 
-    def __init__(self,architecture_map=None,hidden_size=64,max_layer=16):
+    def __init__(self,architecture_map=None,hidden_size=64,max_layer=22):
         super().__init__()
         self.architecture_map = architecture_map
 
@@ -801,7 +771,11 @@ class PolicyGradientNetwork(nn.Module):
                     total_log_prob += log_prob
             elif layer_type is 2: #"multiheadattention"
                 action_prob_map["multiheadattention"] = {}
+                d_model = 0
+                nhead = 0
                 for k, v in self.architecture_map["multiheadattention"].items():
+
+
                     h_t, c_t = self.lstm1(state, (h_t, c_t))
                     k_str = k #+ "@" + str(i)
 
@@ -810,9 +784,18 @@ class PolicyGradientNetwork(nn.Module):
 
                     result = linear_func(hid)
                     result_softmax = F.softmax(result, dim=-1)
+                    # if "d_model"==k:
+                    #     action_index, log_prob, prob = self.sample(result_softmax)
+                    #     action = v[action_index]
+                    #     while action%nhead!=0:
+                    #         action_index, log_prob, prob = self.sample(result_softmax)
+                    #         action = v[action_index]
+                    # else:
                     action_index, log_prob, prob = self.sample(result_softmax)
                     action = v[action_index]
 
+                    # if k == "nhead":
+                    #     nhead = action
                     action_prob_map["multiheadattention"][k_str] = {}
                     action_prob_map["multiheadattention"][k_str]["action"] = action
                     action_prob_map["multiheadattention"][k_str]["log_prob"] = log_prob.item()
@@ -1002,8 +985,8 @@ class PolicyGradientAgent():
                 "embedding_size": [i for i in range(100) if i>2 and i%5==0] #这个其实就相当于输出了
             },
             "multiheadattention":{
+                "nhead": [1, 2, 3, 4, 5, 6, 7, 8, 9],  # 因为dmodel% nhead要等于0
                 "d_model": [i for i in range(100) if i>2 and i%2==0],
-                "nhead":[1],#因为dmodel% nhead要等于0
                 "dropout":self.drop_out_list
             },
             "<end>":{},
@@ -1127,18 +1110,17 @@ class PolicyGradientAgent():
 
 
     def sample(self, state,conv_num=2,linear_num=2):
-
         action_prob_map,new_state,total_log_prob,element_count = self.network(state,self.conv_num,self.linear_num) #torch.cuda.FloatTensor(
         # action_prob = torch.sum(item_action_prob,dim=0)   # To sum over all rows (i.e. for each column)  size = [1, ncol]
         if len(action_prob_map) is 0:
-            return None,None,None
+            return None,total_log_prob,None
+
         regression_params = {}
         self.total_log_prob = total_log_prob
         # self.sample_action(action_prob_map,regression_params)
 
         # 这里注意也要改
         avg_log_prob = self.total_log_prob/element_count
-
 
         # regression_params = {
         #     "conv1d_out_channels":action[0],
@@ -1149,7 +1131,6 @@ class PolicyGradientAgent():
         #
         # }
 
-
         logging.info(action_prob_map)
         return action_prob_map,avg_log_prob,new_state
 
@@ -1158,7 +1139,6 @@ class PolicyGradientAgent():
 
 
 class Task():
-
     def __init__(self,train_set,val_set):
         self.train_set = train_set
         self.val_set = val_set
@@ -1308,12 +1288,16 @@ def reinforcementlearning_main():
 
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(wt_train_set, wt_test_set)
+        task = Task(HF1_train_set, HF1_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
         actionparam,log_prob,newstate = agent.sample(state)
         if actionparam is None:
+            logging.info("len 1   -1000")
+            reward = -1000
+            # log_prob = torch.tensor(-3.0) #不能这里设置
+            agent.learn(reward, log_prob)
             continue
 
         struct_len = len(actionparam)
@@ -1323,8 +1307,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(wt_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(wt_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(HF1_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(HF1_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
@@ -1338,7 +1322,7 @@ def reinforcementlearning_main():
             spearman_reward = rho * 1000
             struct_factor = 700/struct_len
             base_line = 650
-            reward = spearman_reward - struct_factor
+            reward = spearman_reward - struct_factor-base_line
             global max_reward
             global max_spearman
 
@@ -1355,7 +1339,7 @@ def reinforcementlearning_main():
                 max_reward = reward
                 logging.error("max_reward:"+ str(max_reward) +" architecture:" + str(actionparam))
                 if max_reward >0 :
-                    # reward = reward * 3
+                    reward = reward * 3
                     logging.info("new reward:***********************3333")
 
             if reward > 0:
@@ -1369,12 +1353,12 @@ def reinforcementlearning_main():
             logging.info("!!!!!!!!!!"+str(vex)+"!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             reward = -1000
             agent.learn(reward, log_prob)
-        # except Exception as ex:
-        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
-        #     reward = -1000
-        #     if log_prob is None:
-        #         log_prob = torch.tensor([5.0],requires_grad = True)
-        #     agent.learn(reward, log_prob)
+        except Exception as ex:
+            logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+            reward = -1000
+            if log_prob is None:
+                log_prob = torch.tensor([5.0],requires_grad = True)
+            agent.learn(reward, log_prob)
 
 
 

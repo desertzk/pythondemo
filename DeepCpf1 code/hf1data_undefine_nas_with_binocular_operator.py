@@ -12,7 +12,7 @@ import torch.optim as optim
 from torch.distributions import Categorical
 
 import math
-
+import random
 import torch.nn.functional as F
 import logging
 from scipy.stats import spearmanr,pearsonr
@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210829.log"),
+        logging.FileHandler("hf1debugpadding210829.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "wt_undefine_bi_checkpoint_last_un.pt"
+PATH = "hf1_add_skip_checkpoint_last_un.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -508,6 +508,8 @@ class MySequential(nn.Sequential):
 
     def forward(self, input):
         tmp_list = []
+        skip_list = []
+
         # old_layer_num = -1
         for k,module in self:
             # print(input.shape,input.shape_name)
@@ -517,9 +519,51 @@ class MySequential(nn.Sequential):
             # channel_idx = input.shape_name.index("hot")
             # channel = input.shape[channel_idx]
             # module = self.change_model_input(channel,module)
-
-            layer_no,operator_type,op_value=k.split('|')
+            pre_skip_no = -1
+            layer_no, operator_type, op_value = k.split('|')
             list_len = len(tmp_list)
+
+            if len(skip_list) != 0:
+                pre_skip_dict = skip_list[0]
+                pre_skip_no = pre_skip_dict["skip_no"]
+                pre_skip_input = pre_skip_dict["input"]
+                # eliminate duplicate items
+                if pre_skip_no < int(layer_no):
+                    skip_list.pop(0)
+                    continue
+                if pre_skip_no == int(layer_no):
+                    skip_list.pop(0)
+                    # pre_skip_input+input
+                    c_skip_idx = pre_skip_input.shape_name.index("hot")
+                    b_skip_idx = pre_skip_input.shape_name.index("batch")
+                    l_skip_idx = pre_skip_input.shape_name.index("len")
+                    c_idx = input.shape_name.index("hot")
+                    b_idx = input.shape_name.index("batch")
+                    l_idx = input.shape_name.index("len")
+
+                    firstret1 = pre_skip_input.permute(b_skip_idx, l_skip_idx, c_skip_idx)
+                    firstret2 = input.permute(b_idx, l_idx, c_idx)
+                    # 一般batch是相同的
+                    if firstret1.shape[1] > firstret2.shape[1]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
+
+
+                    if firstret1.shape[2] > firstret2.shape[2]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0,0))
+
+
+                    input = firstret1 + firstret2
+                    input.shape_name = ("batch", "len", "hot")
+
+
             if operator_type == "add":
                 if list_len == 0:
                     tmp_list.append(module)
@@ -603,8 +647,6 @@ class MySequential(nn.Sequential):
                     continue
                 elif list_len == 1:
                     first = tmp_list.pop(0)
-
-
                     firstret = first(input)
                     moduleret = module(input)
                     # if first ==
@@ -629,6 +671,19 @@ class MySequential(nn.Sequential):
                         firstret2 = torch.nn.functional.pad(firstret2,(0,0,pad_size,pad_size+remain),"constant",0)
                     input1 = torch.cat((firstret2,moduleret2),2) # should concat 传0应该是扩充第一个维度
                     input1.shape_name = ("batch","len","hot")
+            elif operator_type == "skip":
+
+                skip_no = op_value
+                current_no = layer_no
+                skip_dict = {}
+                skip_dict["skip_no"] = int(skip_no)
+                skip_dict["input"] = input
+
+                skip_list.append(skip_dict)
+                skip_list.sort(key=lambda s: s["skip_no"])
+                input1 = input
+
+
             else:
                 input1 = module(input)
             if not hasattr(input1,"shape_name"):
@@ -654,8 +709,76 @@ class Regression(nn.Module):
         last_type = ""
 
         #
-
-
+        struct_list = [{'concat': [{'multiheadattention': {
+            'd_model': {'action': 54, 'log_prob': -3.9376919269561768, 'prob': 0.01949315518140793},
+            'nhead': {'action': 3, 'log_prob': -1.1307331323623657, 'prob': 0.3227965235710144},
+            'dropout': {'action': 0.15, 'log_prob': -2.427548408508301, 'prob': 0.08825292438268661}}}, {'conv': {
+            'conv1d_out_channels': {'action': 215, 'log_prob': -3.6538381576538086, 'prob': 0.025891562923789024},
+            'conv1d_kernel_size': {'action': 9, 'log_prob': -1.5329251289367676, 'prob': 0.21590319275856018},
+            'conv_padding': {'action': 0, 'log_prob': -0.585204541683197, 'prob': 0.5569919347763062}}}]}, {
+             'multiply': [{'batch_norm': {
+                 'out': {'action': 0.12, 'log_prob': -2.4674360752105713, 'prob': 0.08480200171470642}}}, {
+                              'multiheadattention': {'d_model': {'action': 38, 'log_prob': -3.9722912311553955,
+                                                                 'prob': 0.01883023791015148},
+                                                     'nhead': {'action': 3, 'log_prob': -1.1282119750976562,
+                                                               'prob': 0.32361137866973877},
+                                                     'dropout': {'action': 0.3, 'log_prob': -2.4210166931152344,
+                                                                 'prob': 0.08883126080036163}}}]}, {'unary': [{'conv': {
+            'conv1d_out_channels': {'action': 160, 'log_prob': -3.6834826469421387, 'prob': 0.025135284289717674},
+            'conv1d_kernel_size': {'action': 5, 'log_prob': -1.6150872707366943, 'prob': 0.19887331128120422},
+            'conv_padding': {'action': 0, 'log_prob': -0.585204541683197, 'prob': 0.5569919347763062}}}]}, {'unary': [
+            {'dropout': {'dropout': {'action': 0.25, 'log_prob': -2.261916399002075, 'prob': 0.1041506975889206}}}]},
+         {'skip': [4, 14]}, {'skip': [5, 17]}, {'concat': [
+            {'linear': {'linear_out': {'action': 55, 'log_prob': -3.741696357727051, 'prob': 0.023713842034339905}}},
+            {'dropout': {'dropout': {'action': 0.16, 'log_prob': -2.3517379760742188, 'prob': 0.09520355612039566}}}]},
+         {'unary': [{'conv': {
+             'conv1d_out_channels': {'action': 185, 'log_prob': -3.8348238468170166, 'prob': 0.021605143323540688},
+             'conv1d_kernel_size': {'action': 5, 'log_prob': -1.6150872707366943, 'prob': 0.19887331128120422},
+             'conv_padding': {'action': 1, 'log_prob': -0.8141672611236572, 'prob': 0.44300806522369385}}}]}, {
+             'multiply': [{'multiheadattention': {
+                 'd_model': {'action': 84, 'log_prob': -3.814504623413086, 'prob': 0.02204863540828228},
+                 'nhead': {'action': 2, 'log_prob': -1.046269416809082, 'prob': 0.351245641708374},
+                 'dropout': {'action': 0.15, 'log_prob': -2.4276344776153564, 'prob': 0.08824533224105835}}}, {
+                              'batch_norm': {'out': {'action': 0.07, 'log_prob': -2.4256176948547363,
+                                                     'prob': 0.0884234756231308}}}]}, {'skip': [9, 14]}, {'add': [{
+                                                                                                                      'multiheadattention': {
+                                                                                                                          'd_model': {
+                                                                                                                              'action': 22,
+                                                                                                                              'log_prob': -3.9531044960021973,
+                                                                                                                              'prob': 0.019195018336176872},
+                                                                                                                          'nhead': {
+                                                                                                                              'action': 1,
+                                                                                                                              'log_prob': -1.1235060691833496,
+                                                                                                                              'prob': 0.32513782382011414},
+                                                                                                                          'dropout': {
+                                                                                                                              'action': 0.2,
+                                                                                                                              'log_prob': -2.3312759399414062,
+                                                                                                                              'prob': 0.09717167913913727}}},
+                                                                                                                  {
+                                                                                                                      'linear': {
+                                                                                                                          'linear_out': {
+                                                                                                                              'action': 145,
+                                                                                                                              'log_prob': -3.806271553039551,
+                                                                                                                              'prob': 0.022230911999940872}}}]},
+         {'skip': [11, 18]}, {'unary': [{'conv': {
+            'conv1d_out_channels': {'action': 160, 'log_prob': -3.6834826469421387, 'prob': 0.025135284289717674},
+            'conv1d_kernel_size': {'action': 3, 'log_prob': -1.6718804836273193, 'prob': 0.18789339065551758},
+            'conv_padding': {'action': 0, 'log_prob': -0.585204541683197, 'prob': 0.5569919347763062}}}]}, {
+             'subtract': [{'dropout': {
+                 'dropout': {'action': 0.2, 'log_prob': -2.3312759399414062, 'prob': 0.09717167913913727}}}, {
+                              'pooling': {'pool_type': {'action': 'max', 'log_prob': -0.756755530834198,
+                                                        'prob': 0.4691862165927887},
+                                          'conv_pool': {'action': 3, 'log_prob': -1.20088529586792,
+                                                        'prob': 0.30092769861221313}}}]}, {'unary': [{'pooling': {
+            'pool_type': {'action': 'avg', 'log_prob': -0.6333439350128174, 'prob': 0.5308138132095337},
+            'conv_pool': {'action': 2, 'log_prob': -0.9651170372962952, 'prob': 0.3809386193752289}}}]},
+         {'skip': [15, 15]}, {'concat': [
+            {'dropout': {'dropout': {'action': 0.3, 'log_prob': -2.4210190773010254, 'prob': 0.08883104473352432}}}, {
+                'multiheadattention': {
+                    'd_model': {'action': 12, 'log_prob': -3.8299343585968018, 'prob': 0.021711040288209915},
+                    'nhead': {'action': 3, 'log_prob': -1.1281962394714355, 'prob': 0.3236164450645447},
+                    'dropout': {'action': 0.16, 'log_prob': -2.3517379760742188, 'prob': 0.09520355612039566}}}]},
+         {'skip': [17, 18]}]
 
         # 这里最好写成递归的模式
         for dict_struct in struct_list:
@@ -760,6 +883,11 @@ class Regression(nn.Module):
                         last_out = last_out1
                     else:
                         last_out = last_out2
+                elif layer_type == "skip":
+                    from_layer = dict_params[0]
+                    to_layer = dict_params[1]
+                    idxstr= str(from_layer)+"|skip|"+str(to_layer)
+                    layers[idxstr] = None
                 else:
                     dict_params = dict_params[0]
                     layer_model1, last_out, last_input,d_model = self.make_layer(dict_params, last_out, last_input)
@@ -915,7 +1043,7 @@ class Regression(nn.Module):
 
 '''
 class PolicyGradientNetwork(nn.Module):
-    def __init__(self,architecture_map=None,hidden_size=64,max_layer=12):
+    def __init__(self,architecture_map=None,hidden_size=64,max_layer=18):
         super().__init__()
         self.architecture_map = architecture_map
 
@@ -947,7 +1075,7 @@ class PolicyGradientNetwork(nn.Module):
         # 4 layer type 这里应该每一层分开用不同的type比较好
         for i in range(max_layer):
             self.__setattr__("type_layer"+str(i), nn.Linear(64, 8))
-            self.__setattr__("operator_count"+str(i), nn.Linear(32, 5))
+            self.__setattr__("operator_count"+str(i), nn.Linear(32, 6))
         # self.type_layer2 = nn.Linear(32, 7)
         # self.embedding_linear=nn.Linear(state_size, len(self.architecture_map["linear"]["embedding"]))
 
@@ -1199,7 +1327,7 @@ class PolicyGradientNetwork(nn.Module):
             operator_prob = torch.exp(operator_log_prob)
             operator_index = operator_index.item()
             # operator_index = 3
-            # 0 add 1 subtract 2 concat 3 unary
+            # 0 add 1 subtract 2 concat 3 unary 4 multiply 5 skip
             if operator_index is 0:
                 add_operator = {
                     "add":[]
@@ -1280,6 +1408,14 @@ class PolicyGradientNetwork(nn.Module):
                     break
 
                 list_struct.append(multiply_operator)
+            elif operator_index is 5:
+                skip_operator = {
+                    "skip": [],
+                }
+                to_layer = random.randint(i, self.max_layer)
+                skip_operator["skip"].append(i)
+                skip_operator["skip"].append(to_layer)
+                list_struct.append(skip_operator)
             elif operator_index is 2:
                 concat_operator = {
                     "concat": []
@@ -1556,7 +1692,7 @@ class PolicyGradientAgent():
         self.pool_type_list = ['avg','max']
         self.pool_kernel_list = [2,3,4]
         self.padding_list = [0,1]
-        self.conv1d_out_channels_list = [i for i in range(321) if i>9 and i%5==0] #[80,90,100,110]
+        self.conv1d_out_channels_list = [i for i in range(221) if i>9 and i%5==0] #[80,90,100,110]
         self.conv1d_kernel_size_list = [1,3,5,7,9]  #[7,5,1]
         self.drop_out_list = [0.02,0.05,0.1,0.15,0.2,0.07,0.12,0.16,0.23,0.25,0.3]
         self.conv_num_list = [1,2,3,4]
@@ -1564,7 +1700,7 @@ class PolicyGradientAgent():
         self.conv_batch_norm_list = [0,1]
         self.batch_norm_list = [0, 1]
 
-        self.linear40_40_out_features_list = [i for i in range(300) if i>2 and i%5==0]#[10,20,40,80]
+        self.linear40_40_out_features_list = [i for i in range(200) if i>2 and i%5==0]#[10,20,40,80]
         self.need_pool = [0,1]
 
 
@@ -1873,7 +2009,7 @@ def reinforcementlearning_main():
 
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(wt_train_set, wt_test_set)
+        task = Task(HF1_train_set, HF1_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -1893,8 +2029,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(wt_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(wt_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(HF1_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(HF1_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
@@ -1945,12 +2081,12 @@ def reinforcementlearning_main():
             logging.info("!!!!!!!!!!"+str(vex)+"!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             reward = -1000
             agent.learn(reward, log_prob)
-        except Exception as ex:
-            logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
-            reward = -1000
-            if log_prob is None:
-                log_prob = torch.tensor([5.0],requires_grad = True)
-            agent.learn(reward, log_prob)
+        # except Exception as ex:
+        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+        #     reward = -1000
+        #     if log_prob is None:
+        #         log_prob = torch.tensor([5.0],requires_grad = True)
+        #     agent.learn(reward, log_prob)
 
 
 

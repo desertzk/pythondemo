@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210829.log"),
+        logging.FileHandler("espdebugpadding210905.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +40,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "wt_undefine_bi_checkpoint_last_un.pt"
+PATH = "esp_undefine_bi_checkpoint_last_un.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -1199,7 +1199,7 @@ class PolicyGradientNetwork(nn.Module):
             operator_prob = torch.exp(operator_log_prob)
             operator_index = operator_index.item()
             # operator_index = 3
-            # 0 add 1 subtract 2 concat 3 unary
+            # 0 add 1 subtract 2 concat 3 unary 4 multiply
             if operator_index is 0:
                 add_operator = {
                     "add":[]
@@ -1556,7 +1556,7 @@ class PolicyGradientAgent():
         self.pool_type_list = ['avg','max']
         self.pool_kernel_list = [2,3,4]
         self.padding_list = [0,1]
-        self.conv1d_out_channels_list = [i for i in range(321) if i>9 and i%5==0] #[80,90,100,110]
+        self.conv1d_out_channels_list = [i for i in range(221) if i>9 and i%5==0] #[80,90,100,110]
         self.conv1d_kernel_size_list = [1,3,5,7,9]  #[7,5,1]
         self.drop_out_list = [0.02,0.05,0.1,0.15,0.2,0.07,0.12,0.16,0.23,0.25,0.3]
         self.conv_num_list = [1,2,3,4]
@@ -1564,7 +1564,7 @@ class PolicyGradientAgent():
         self.conv_batch_norm_list = [0,1]
         self.batch_norm_list = [0, 1]
 
-        self.linear40_40_out_features_list = [i for i in range(300) if i>2 and i%5==0]#[10,20,40,80]
+        self.linear40_40_out_features_list = [i for i in range(200) if i>2 and i%5==0]#[10,20,40,80]
         self.need_pool = [0,1]
 
 
@@ -1873,7 +1873,7 @@ def reinforcementlearning_main():
 
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(wt_train_set, wt_test_set)
+        task = Task(eSpCas_train_set, eSpCas_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -1893,8 +1893,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(wt_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(wt_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(eSpCas_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(eSpCas_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
