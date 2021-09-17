@@ -588,38 +588,6 @@ class MySequential(nn.Sequential):
                         result = result_1dim.reshape(moduleret.shape)
                         result.shape_name = moduleret.shape_name
 
-                    c_skip_idx = firstret.shape_name.index("hot")
-                    b_skip_idx = firstret.shape_name.index("batch")
-                    l_skip_idx = firstret.shape_name.index("len")
-                    c_idx = moduleret.shape_name.index("hot")
-                    b_idx = moduleret.shape_name.index("batch")
-                    l_idx = moduleret.shape_name.index("len")
-
-
-                    firstret1 = firstret.permute(b_skip_idx, l_skip_idx, c_skip_idx)
-                    firstret2 = moduleret.permute(b_idx, l_idx, c_idx)
-                    # 一般batch是相同的
-                    if firstret1.shape[1] > firstret2.shape[1]:
-                        firstret2 = torch.nn.functional.pad(firstret2,
-                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
-                    else:
-                        firstret1 = torch.nn.functional.pad(firstret1, (
-                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
-
-
-                    if firstret1.shape[2] > firstret2.shape[2]:
-                        firstret2 = torch.nn.functional.pad(firstret2,
-                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
-                    else:
-                        firstret1 = torch.nn.functional.pad(firstret1, (
-                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0, 0))
-
-
-                    input = firstret1 + firstret2
-                    input.shape_name = ("batch", "len", "hot")
-
-
-
                     input1 = result
             elif operator_type == "subtract":
                 if list_len == 0:
