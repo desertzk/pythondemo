@@ -32,7 +32,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("newwtdebugpadding210829.log"),
+        logging.FileHandler("newwtdebugpadding210921.log"),
         logging.StreamHandler()
     ]
 )
@@ -508,6 +508,8 @@ class MySequential(nn.Sequential):
 
     def forward(self, input):
         tmp_list = []
+        skip_list = []
+
         # old_layer_num = -1
         for k,module in self:
             # print(input.shape,input.shape_name)
@@ -517,9 +519,51 @@ class MySequential(nn.Sequential):
             # channel_idx = input.shape_name.index("hot")
             # channel = input.shape[channel_idx]
             # module = self.change_model_input(channel,module)
-
-            layer_no,operator_type,op_value=k.split('|')
+            pre_skip_no = -1
+            layer_no, operator_type, op_value = k.split('|')
             list_len = len(tmp_list)
+
+            if len(skip_list) != 0:
+                pre_skip_dict = skip_list[0]
+                pre_skip_no = pre_skip_dict["skip_no"]
+                pre_skip_input = pre_skip_dict["input"]
+                # eliminate duplicate items
+                if pre_skip_no < int(layer_no):
+                    skip_list.pop(0)
+
+                if pre_skip_no == int(layer_no): #有两个skip到同一层的话 shape 大小有可能会出错
+                    skip_list.pop(0)
+                    # pre_skip_input+input
+                    c_skip_idx = pre_skip_input.shape_name.index("hot")
+                    b_skip_idx = pre_skip_input.shape_name.index("batch")
+                    l_skip_idx = pre_skip_input.shape_name.index("len")
+                    c_idx = input.shape_name.index("hot")
+                    b_idx = input.shape_name.index("batch")
+                    l_idx = input.shape_name.index("len")
+
+                    firstret1 = pre_skip_input.permute(b_skip_idx, l_skip_idx, c_skip_idx)
+                    firstret2 = input.permute(b_idx, l_idx, c_idx)
+                    # 一般batch是相同的
+                    if firstret1.shape[1] > firstret2.shape[1]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
+
+
+                    if firstret1.shape[2] > firstret2.shape[2]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0, 0))
+
+
+                    input = firstret1 + firstret2
+                    input.shape_name = ("batch", "len", "hot")
+
+
             if operator_type == "add":
                 if list_len == 0:
                     tmp_list.append(module)
@@ -528,23 +572,55 @@ class MySequential(nn.Sequential):
                     first = tmp_list.pop(0)
                     firstret = first(input)
                     moduleret = module(input)
-                    first_ret_1dim = torch.flatten(firstret)
-                    module_ret_1dim = torch.flatten(moduleret)
-                    first_ret_1dim_size = len(first_ret_1dim)
-                    module_ret_1dim_size = len(module_ret_1dim)
-                    if first_ret_1dim_size > module_ret_1dim_size:
-                        module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim, (0, first_ret_1dim_size-module_ret_1dim_size))
-                        result_1dim = first_ret_1dim + module_ret_1dim_new
-                        result = result_1dim.reshape(firstret.shape)
-                        result.shape_name = firstret.shape_name
-                    else:
-                        first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
-                                                                  (0, module_ret_1dim_size-first_ret_1dim_size))
-                        result_1dim = first_ret_1dim_new + module_ret_1dim
-                        result = result_1dim.reshape(moduleret.shape)
-                        result.shape_name = moduleret.shape_name
+                    # first_ret_1dim = torch.flatten(firstret)
+                    # module_ret_1dim = torch.flatten(moduleret)
+                    # first_ret_1dim_size = len(first_ret_1dim)
+                    # module_ret_1dim_size = len(module_ret_1dim)
+                    # if first_ret_1dim_size > module_ret_1dim_size:
+                    #     module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim, (0, first_ret_1dim_size-module_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim + module_ret_1dim_new
+                    #     result = result_1dim.reshape(firstret.shape)
+                    #     result.shape_name = firstret.shape_name
+                    # else:
+                    #     first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
+                    #                                               (0, module_ret_1dim_size-first_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim_new + module_ret_1dim
+                    #     result = result_1dim.reshape(moduleret.shape)
+                    #     result.shape_name = moduleret.shape_name
 
-                    input1 = result
+                    c_skip_idx = firstret.shape_name.index("hot")
+                    b_skip_idx = firstret.shape_name.index("batch")
+                    l_skip_idx = firstret.shape_name.index("len")
+                    c_idx = moduleret.shape_name.index("hot")
+                    b_idx = moduleret.shape_name.index("batch")
+                    l_idx = moduleret.shape_name.index("len")
+
+
+                    firstret1 = firstret.permute(b_skip_idx, l_skip_idx, c_skip_idx)
+                    firstret2 = moduleret.permute(b_idx, l_idx, c_idx)
+                    # 一般batch是相同的
+                    if firstret1.shape[1] > firstret2.shape[1]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
+
+
+                    if firstret1.shape[2] > firstret2.shape[2]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0, 0))
+
+
+                    input1 = firstret1 + firstret2
+                    input1.shape_name = ("batch", "len", "hot")
+
+
+
+                    # input1 = result
             elif operator_type == "subtract":
                 if list_len == 0:
                     tmp_list.append(module)
@@ -553,24 +629,52 @@ class MySequential(nn.Sequential):
                     first = tmp_list.pop(0)
                     firstret = first(input)
                     moduleret = module(input)
-                    first_ret_1dim = torch.flatten(firstret)
-                    module_ret_1dim = torch.flatten(moduleret)
-                    first_ret_1dim_size = len(first_ret_1dim)
-                    module_ret_1dim_size = len(module_ret_1dim)
-                    if first_ret_1dim_size > module_ret_1dim_size:
-                        module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim,
-                                                                      (0, first_ret_1dim_size - module_ret_1dim_size))
-                        result_1dim = first_ret_1dim - module_ret_1dim_new
-                        result = result_1dim.reshape(firstret.shape)
-                        result.shape_name = firstret.shape_name
-                    else:
-                        first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
-                                                                     (0, module_ret_1dim_size - first_ret_1dim_size))
-                        result_1dim = first_ret_1dim_new - module_ret_1dim
-                        result = result_1dim.reshape(moduleret.shape)
-                        result.shape_name = moduleret.shape_name
+                    # first_ret_1dim = torch.flatten(firstret)
+                    # module_ret_1dim = torch.flatten(moduleret)
+                    # first_ret_1dim_size = len(first_ret_1dim)
+                    # module_ret_1dim_size = len(module_ret_1dim)
+                    # if first_ret_1dim_size > module_ret_1dim_size:
+                    #     module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim,
+                    #                                                   (0, first_ret_1dim_size - module_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim - module_ret_1dim_new
+                    #     result = result_1dim.reshape(firstret.shape)
+                    #     result.shape_name = firstret.shape_name
+                    # else:
+                    #     first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
+                    #                                                  (0, module_ret_1dim_size - first_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim_new - module_ret_1dim
+                    #     result = result_1dim.reshape(moduleret.shape)
+                    #     result.shape_name = moduleret.shape_name
+                    c_skip_idx = firstret.shape_name.index("hot")
+                    b_skip_idx = firstret.shape_name.index("batch")
+                    l_skip_idx = firstret.shape_name.index("len")
+                    c_idx = moduleret.shape_name.index("hot")
+                    b_idx = moduleret.shape_name.index("batch")
+                    l_idx = moduleret.shape_name.index("len")
 
-                    input1 = result
+
+                    firstret1 = firstret.permute(b_skip_idx, l_skip_idx, c_skip_idx)
+                    firstret2 = moduleret.permute(b_idx, l_idx, c_idx)
+                    # 一般batch是相同的
+                    if firstret1.shape[1] > firstret2.shape[1]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
+
+
+                    if firstret1.shape[2] > firstret2.shape[2]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0, 0))
+
+
+                    input1 = firstret1 - firstret2
+                    input1.shape_name = ("batch", "len", "hot")
+                    # input1 = result
             elif operator_type == "multiply":
                 if list_len == 0:
                     tmp_list.append(module)
@@ -579,24 +683,54 @@ class MySequential(nn.Sequential):
                     first = tmp_list.pop(0)
                     firstret = first(input)
                     moduleret = module(input)
-                    first_ret_1dim = torch.flatten(firstret)
-                    module_ret_1dim = torch.flatten(moduleret)
-                    first_ret_1dim_size = len(first_ret_1dim)
-                    module_ret_1dim_size = len(module_ret_1dim)
-                    if first_ret_1dim_size > module_ret_1dim_size:
-                        module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim,
-                                                                      (0, first_ret_1dim_size - module_ret_1dim_size))
-                        result_1dim = first_ret_1dim - module_ret_1dim_new
-                        result = result_1dim.reshape(firstret.shape)
-                        result.shape_name = firstret.shape_name
-                    else:
-                        first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
-                                                                     (0, module_ret_1dim_size - first_ret_1dim_size))
-                        result_1dim = first_ret_1dim_new * module_ret_1dim
-                        result = result_1dim.reshape(moduleret.shape)
-                        result.shape_name = moduleret.shape_name
+                    # first_ret_1dim = torch.flatten(firstret)
+                    # module_ret_1dim = torch.flatten(moduleret)
+                    # first_ret_1dim_size = len(first_ret_1dim)
+                    # module_ret_1dim_size = len(module_ret_1dim)
+                    # if first_ret_1dim_size > module_ret_1dim_size:
+                    #     module_ret_1dim_new = torch.nn.functional.pad(module_ret_1dim,
+                    #                                                   (0, first_ret_1dim_size - module_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim - module_ret_1dim_new
+                    #     result = result_1dim.reshape(firstret.shape)
+                    #     result.shape_name = firstret.shape_name
+                    # else:
+                    #     first_ret_1dim_new = torch.nn.functional.pad(first_ret_1dim,
+                    #                                                  (0, module_ret_1dim_size - first_ret_1dim_size))
+                    #     result_1dim = first_ret_1dim_new * module_ret_1dim
+                    #     result = result_1dim.reshape(moduleret.shape)
+                    #     result.shape_name = moduleret.shape_name
 
-                    input1 = result
+                    c_skip_idx = firstret.shape_name.index("hot")
+                    b_skip_idx = firstret.shape_name.index("batch")
+                    l_skip_idx = firstret.shape_name.index("len")
+                    c_idx = moduleret.shape_name.index("hot")
+                    b_idx = moduleret.shape_name.index("batch")
+                    l_idx = moduleret.shape_name.index("len")
+
+
+                    firstret1 = firstret.permute(b_skip_idx, l_skip_idx, c_skip_idx)
+                    firstret2 = moduleret.permute(b_idx, l_idx, c_idx)
+                    # 一般batch是相同的
+                    if firstret1.shape[1] > firstret2.shape[1]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,0,0,firstret1.shape[1]-firstret2.shape[1],0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, 0, 0, firstret2.shape[1] - firstret1.shape[1], 0, 0))
+
+
+                    if firstret1.shape[2] > firstret2.shape[2]:
+                        firstret2 = torch.nn.functional.pad(firstret2,
+                                                            (0,firstret1.shape[2]-firstret2.shape[2],0,0,0,0))
+                    else:
+                        firstret1 = torch.nn.functional.pad(firstret1, (
+                        0, firstret2.shape[2] - firstret1.shape[2], 0, 0, 0, 0))
+
+
+                    input1 = firstret1 * firstret2
+                    input1.shape_name = ("batch", "len", "hot")
+
+
             elif operator_type == "concat":#遇到池化层 mat会不一样要特殊处理
                 if list_len == 0:
                     tmp_list.append(module)
@@ -629,6 +763,19 @@ class MySequential(nn.Sequential):
                         firstret2 = torch.nn.functional.pad(firstret2,(0,0,pad_size,pad_size+remain),"constant",0)
                     input1 = torch.cat((firstret2,moduleret2),2) # should concat 传0应该是扩充第一个维度
                     input1.shape_name = ("batch","len","hot")
+            elif operator_type == "skip":
+
+                skip_no = op_value
+                current_no = layer_no
+                skip_dict = {}
+                skip_dict["skip_no"] = int(skip_no)
+                skip_dict["input"] = input
+
+                skip_list.append(skip_dict)
+                skip_list.sort(key=lambda s: s["skip_no"])
+                input1 = input
+
+
             else:
                 input1 = module(input)
             if not hasattr(input1,"shape_name"):
@@ -654,11 +801,49 @@ class Regression(nn.Module):
         last_type = ""
 
         #
+        # struct_list = [{'skip': [0, 7]}, {'multiply': [
+        #     {'linear': {'linear_out': {'action': 40, 'log_prob': -3.80395770072937, 'prob': 0.02228241041302681}}},
+        #     {'linear': {'linear_out': {'action': 50, 'log_prob': -3.4984278678894043, 'prob': 0.030244894325733185}}}]},
+        #  {'add': [
+        #      {'linear': {'linear_out': {'action': 20, 'log_prob': -3.8297505378723145, 'prob': 0.021715031936764717}}},
+        #      {'linear': {
+        #          'linear_out': {'action': 145, 'log_prob': -3.6870110034942627, 'prob': 0.025046756491065025}}}]}, {
+        #      'multiply': [{'dropout': {
+        #          'dropout': {'action': 0.02, 'log_prob': -2.4979515075683594, 'prob': 0.08225332200527191}}}, {
+        #                       'pooling': {'pool_type': {'action': 'avg', 'log_prob': -0.6494075655937195,
+        #                                                 'prob': 0.5223551392555237},
+        #                                   'conv_pool': {'action': 2, 'log_prob': -1.0696231126785278,
+        #                                                 'prob': 0.34313780069351196}}}]}, {'unary': [{'conv': {
+        #     'conv1d_out_channels': {'action': 160, 'log_prob': -3.8749873638153076, 'prob': 0.020754599943757057},
+        #     'conv1d_kernel_size': {'action': 5, 'log_prob': -1.505735993385315, 'prob': 0.22185395658016205},
+        #     'conv_padding': {'action': 0, 'log_prob': -0.7013183832168579, 'prob': 0.4959310293197632}}}]}, {'unary': [
+        #     {'linear': {'linear_out': {'action': 155, 'log_prob': -3.724501848220825, 'prob': 0.02412511594593525}}}]},
+        #  {'skip': [6, 9]}, {'unary': [
+        #     {'linear': {'linear_out': {'action': 20, 'log_prob': -3.831171989440918, 'prob': 0.021684186533093452}}}]},
+        #  {'skip': [8, 9]}, {'skip': [9, 10]}, {'add': [{'activate': {
+        #     'active': {'action': 'Hardswish', 'log_prob': -1.964343786239624, 'prob': 0.1402478963136673}}}, {'conv': {
+        #     'conv1d_out_channels': {'action': 90, 'log_prob': -3.825794219970703, 'prob': 0.021801114082336426},
+        #     'conv1d_kernel_size': {'action': 3, 'log_prob': -1.632265567779541, 'prob': 0.1954861730337143},
+        #     'conv_padding': {'action': 0, 'log_prob': -0.7013183832168579, 'prob': 0.4959310293197632}}}]}, {
+        #      'multiply': [{'conv': {
+        #          'conv1d_out_channels': {'action': 65, 'log_prob': -3.6757423877716064, 'prob': 0.025330595672130585},
+        #          'conv1d_kernel_size': {'action': 5, 'log_prob': -1.505735993385315, 'prob': 0.22185395658016205},
+        #          'conv_padding': {'action': 0, 'log_prob': -0.7013183832168579, 'prob': 0.4959310293197632}}}, {
+        #                       'linear': {'linear_out': {'action': 45, 'log_prob': -3.7286887168884277,
+        #                                                 'prob': 0.024024317041039467}}}]}]
 
-
+        out_list = []
+        skip_to_layer_list = {}
 
         # 这里最好写成递归的模式
         for dict_struct in struct_list:
+            if idx in skip_to_layer_list.keys():
+                try:
+                    old_last_out = last_out
+                    skip_out = out_list[skip_to_layer_list[idx]-1]
+                    last_out = skip_out if skip_out >= old_last_out else old_last_out
+                except Exception as ex:
+                   print("<<<<<<<<<out_list   Except <<<<<<<<"+str(ex))
             for layer_type, dict_params in dict_struct.items():
                 operator_count = 0
                 if layer_type == "add":
@@ -680,8 +865,8 @@ class Regression(nn.Module):
                         idxstr = str(idx) + "|add|" + str(operator_count)
                         layers[idxstr] = layer_model1
 
-                    mul1 = last_out1 * last_input1
-                    mul2 = last_out2 * last_input2
+                    mul1 = last_out1 #* last_input1
+                    mul2 = last_out2 #* last_input2
                     if mul1 > mul2:#两个里面大的作为下一层的输入
                         last_out = last_out1
                     else:
@@ -730,8 +915,8 @@ class Regression(nn.Module):
                                                                                       last_input)
                         idxstr = str(idx) + "|subtract|" + str(operator_count)
                         layers[idxstr] = layer_model1
-                    mul1 = last_out1 * last_input1
-                    mul2 = last_out2 * last_input2
+                    mul1 = last_out1 #* last_input1
+                    mul2 = last_out2 #* last_input2
                     if mul1 > mul2:#两个里面大的作为下一层的输入
                         last_out = last_out1
                     else:
@@ -754,12 +939,18 @@ class Regression(nn.Module):
                                                                                       last_input)
                         idxstr = str(idx) + "|multiply|" + str(operator_count)
                         layers[idxstr] = layer_model1
-                    mul1 = last_out1 * last_input1
-                    mul2 = last_out2 * last_input2
+                    mul1 = last_out1 #* last_input1
+                    mul2 = last_out2 #* last_input2
                     if mul1 > mul2:#两个里面大的作为下一层的输入
                         last_out = last_out1
                     else:
                         last_out = last_out2
+                elif layer_type == "skip":
+                    from_layer = dict_params["from"]
+                    to_layer = dict_params["to"]
+                    idxstr= str(from_layer)+"|skip|"+str(to_layer)
+                    layers[idxstr] = None
+                    skip_to_layer_list[to_layer] = from_layer
                 else:
                     dict_params = dict_params[0]
                     layer_model1, last_out, last_input,d_model = self.make_layer(dict_params, last_out, last_input)
@@ -772,6 +963,7 @@ class Regression(nn.Module):
 
                 idx += 1
                 last_type = layer_type
+                out_list.append(last_out)
 
             # self.sequential = nn.Sequential(*layers)
         self.sequential = MySequential(layers)
@@ -947,7 +1139,8 @@ class PolicyGradientNetwork(nn.Module):
         # 4 layer type 这里应该每一层分开用不同的type比较好
         for i in range(max_layer):
             self.__setattr__("type_layer"+str(i), nn.Linear(64, 8))
-            self.__setattr__("operator_count"+str(i), nn.Linear(32, 5))
+            self.__setattr__("operator_count"+str(i), nn.Linear(32, 6))
+            self.__setattr__("skip_layer"+str(i), nn.Linear(64, max_layer-i))
         # self.type_layer2 = nn.Linear(32, 7)
         # self.embedding_linear=nn.Linear(state_size, len(self.architecture_map["linear"]["embedding"]))
 
@@ -989,10 +1182,10 @@ class PolicyGradientNetwork(nn.Module):
         type_log_prob = action_dist.log_prob(
             action_index)  # log_prob returns the log of the probability density/mass function evaluated at the given sample value.
         type_prob = torch.exp(type_log_prob)
-        list_type_prob.append((action_index.item(), type_prob.item()))
+        list_type_prob.append((type_layer_str,action_index.item(), type_prob.item()))
 
         layer_type = action_index.item()
-        self.element_count +=1
+        self.element_count += 1
         self.total_log_prob += type_log_prob
         # total_log_prob_list.append(type_log_prob)
 
@@ -1198,8 +1391,9 @@ class PolicyGradientNetwork(nn.Module):
             self.total_log_prob += log_prob
             operator_prob = torch.exp(operator_log_prob)
             operator_index = operator_index.item()
+            list_type_prob.append(("operator_type", operator_index, operator_prob.item()))
             # operator_index = 3
-            # 0 add 1 subtract 2 concat 3 unary
+            # 0 add 1 subtract 2 concat 3 unary 4 multiply 5 skip
             if operator_index is 0:
                 add_operator = {
                     "add":[]
@@ -1280,6 +1474,33 @@ class PolicyGradientNetwork(nn.Module):
                     break
 
                 list_struct.append(multiply_operator)
+            elif operator_index is 5:
+                skip_operator = {
+                    "skip": {},
+
+                }
+                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                hid = c_t.squeeze()  #
+
+                skip_layer_str = "skip_layer" + str(i)
+                skip_layer_linear = self.__getattr__(skip_layer_str)
+                output = skip_layer_linear(hid)
+                output = F.softmax(output, dim=-1)
+                action_dist = Categorical(output)
+                action_index = action_dist.sample()
+                type_log_prob = action_dist.log_prob(
+                    action_index)  # log_prob returns the log of the probability density/mass function evaluated at the given sample value.
+                type_prob = torch.exp(type_log_prob)
+                skip_operator["skip"]["prob"] = type_prob.item()
+                list_type_prob.append((skip_layer_str,action_index.item(), type_prob.item()))
+
+                add_layer = action_index.item()
+                self.element_count += 1
+                self.total_log_prob += type_log_prob
+                # to_layer = random.randint(i+1, self.max_layer)
+                skip_operator["skip"]["from"] = i
+                skip_operator["skip"]["to"] = i + add_layer+1
+                list_struct.append(skip_operator)
             elif operator_index is 2:
                 concat_operator = {
                     "concat": []
@@ -1335,7 +1556,7 @@ class PolicyGradientNetwork(nn.Module):
                 type_log_prob = action_dist.log_prob(
                     action_index)  # log_prob returns the log of the probability density/mass function evaluated at the given sample value.
                 type_prob = torch.exp(type_log_prob)
-                list_type_prob.append((action_index.item(),type_prob.item()))
+                list_type_prob.append((type_layer_str,action_index.item(),type_prob.item()))
 
 
                 layer_type = action_index.item()

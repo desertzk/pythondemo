@@ -1,18 +1,14 @@
-
 import numpy as np
-
 import torch
 import torch.nn as nn
-
 import pandas as pd
 from numpy import zeros
-
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 from torch.distributions import Categorical
-
+from os import path
 import math
-
+import json
 import torch.nn.functional as F
 import logging
 from scipy.stats import spearmanr,pearsonr
@@ -32,7 +28,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("espdebugpadding211010.log"),
+        logging.FileHandler("xcasdebugpadding211011.log"),
         logging.StreamHandler()
     ]
 )
@@ -40,7 +36,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "esp_undefine_bi_checkpoint_last_un.pt"
+PATH = "xcas9_undefine_bi_checkpoint_last_un.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -100,37 +96,14 @@ def data_load():
     return SEQ,indel_f,test_SEQ,test_indel_f
 
 
-def data_load_nc():
-    train_data = pd.read_csv('data/DataS1.csv')
-    # test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
-    # use_data = train_data[1:14999]
-    # new_header = test_data.iloc[0]
-    # test_data = test_data[1:]
-    # test_data.index = np.arange(0, len(test_data))
-    # test_data.columns = new_header
-    bp34_col = train_data["21mer"]
-    wt_efficiency = train_data["Wt_Efficiency"]
-    eSpCas = train_data["eSpCas 9_Efficiency"]
-    SpCas9_HF1 = train_data["SpCas9-HF1_Efficiency"]
-    # SEQ = PREPROCESS_ONE_HOT(bp34_col,mer=21)
+def data_load_xcas9():
+    train_data = pd.read_csv('_data_/raw_xCas.csv')
 
-    wt_df = pd.DataFrame({"21mer":bp34_col,"Wt_Efficiency":wt_efficiency})
-    wt_df_clean = wt_df.dropna()
-    wt_df_clean = wt_df_clean.reset_index(drop=True)
-
-    eSpCas_df = pd.DataFrame({"21mer":bp34_col,"eSpCas 9_Efficiency":eSpCas})
-    eSpCas_df_clean = eSpCas_df.dropna()
-    eSpCas_df_clean = eSpCas_df_clean.reset_index(drop=True)
-
-    SpCas9_HF1_df = pd.DataFrame({"21mer":bp34_col,"HF1_Efficiency":SpCas9_HF1})
-    SpCas9_HF1_df_clean = SpCas9_HF1_df.dropna()
-    SpCas9_HF1_df_clean = SpCas9_HF1_df_clean.reset_index(drop=True)
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
 
 
-    # test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
-    # test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
-    return wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean
+    return bp34_col,xcas_efficiency
 
 class RNADataset(Dataset):
     def __init__(self, x, y=None, transform=None):
@@ -146,31 +119,19 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
-wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean = data_load_nc()
+xcas9bp,xcas_efficiency = data_load_xcas9()
 
-wt_train_x = wt_df_clean["21mer"]
-wt_efficiency = wt_df_clean["Wt_Efficiency"]
-wt_train_x = PREPROCESS_ONE_HOT(wt_train_x,21)
-wt_train_x_for_torch = np.transpose(wt_train_x,(0,2,1))
+# wt_train_x = wt_df_clean["21mer"]
+# wt_efficiency = wt_df_clean["Wt_Efficiency"]
+xcas9bp_train_x = PREPROCESS_ONE_HOT(xcas9bp,23)
+xcas9bp_train_x_for_torch = np.transpose(xcas9bp_train_x,(0,2,1))
 # test_x__for_torch = np.transpose(test_x,(0,2,1))
-wt_efficiency_set = RNADataset(wt_train_x_for_torch,wt_efficiency)
-
-eSpCas_train_x = eSpCas_df_clean["21mer"]
-eSpCas_efficiency = eSpCas_df_clean["eSpCas 9_Efficiency"]
-eSpCas_train_x = PREPROCESS_ONE_HOT(eSpCas_train_x,21)
-eSpCas_train_x_for_torch = np.transpose(eSpCas_train_x,(0,2,1))
-eSpCas_set = RNADataset(eSpCas_train_x_for_torch,eSpCas_efficiency)
+xcas9_efficiency_set = RNADataset(xcas9bp_train_x_for_torch,xcas_efficiency)
 
 
-SpCas9_HF1_train_x = SpCas9_HF1_df_clean["21mer"]
-SpCas9_HF1_efficiency = SpCas9_HF1_df_clean["HF1_Efficiency"]
-SpCas9_HF1_train_x = PREPROCESS_ONE_HOT(SpCas9_HF1_train_x,21)
-SpCas9_HF1_train_x_for_torch = np.transpose(SpCas9_HF1_train_x,(0,2,1))
-SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
 
-wt_train_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537+4726, 8341])
-eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842+4982,8793])
-HF1_train_set,HF1_test_set = torch.utils.data.random_split(SpCas9_HF1_set, [43518+4836,8534])
+xcas9_train_set,xcas9_test_set = torch.utils.data.random_split(xcas9_efficiency_set, [31000, 6738])
+
 
 
 pooling_funtion = {
@@ -793,7 +754,7 @@ class Regression(nn.Module):
         layers = OrderedDict()
         last_out = 4 # first time
         conv1d_out_channels = 1
-        last_input = 21 #lenth
+        last_input = 23 #lenth
         # is_first = True
         # for k,params in dict_params.items():
         idx = 0
@@ -2050,8 +2011,11 @@ def reinforcementlearning_main():
     #                                                task_data_train)
     #
     # val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
-
-
+    reward_list = []
+    if path.exists("xcas9_reward.json"):
+        with open('xcas9_reward.json', 'r') as openfile:
+            # Reading from json file
+            reward_list = json.load(openfile)
 
     agent = PolicyGradientAgent()
 
@@ -2064,7 +2028,7 @@ def reinforcementlearning_main():
 
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(eSpCas_train_set, eSpCas_test_set)
+        task = Task(xcas9_train_set, xcas9_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -2084,8 +2048,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(eSpCas_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(eSpCas_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(xcas9_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(xcas9_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
@@ -2101,6 +2065,16 @@ def reinforcementlearning_main():
             struct_factor = 700/struct_len
             base_line = 700
             reward = spearman_reward - base_line - struct_factor
+            reward_list.append(reward)
+            if batch % 10 ==0:
+                # Serializing json
+                json_object = json.dumps(reward_list, indent=4)
+
+                # Writing to sample.json
+                with open("xcas9_reward.json", "w") as outfile:
+                    outfile.write(json_object)
+
+
             global max_reward
             global max_spearman
             global max_pearson
@@ -2121,9 +2095,7 @@ def reinforcementlearning_main():
             if reward > max_reward:
                 max_reward = reward
                 logging.error("max_reward:"+ str(max_reward) +" architecture:" + str(actionparam))
-                if max_reward >0 :
-                    # reward = reward * 3
-                    logging.info("new reward:***********************3333")
+
 
             if reward > 0:
                 # reward = reward * 1.2
