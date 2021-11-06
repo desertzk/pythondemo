@@ -19,6 +19,9 @@ from torch._jit_internal import _copy_to_script_wrapper
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from typing import Any, Iterable, Iterator, Mapping, Optional, overload, Tuple, TypeVar, Union
 from pathlib import Path
+from sklearn.metrics import roc_auc_score
+from sklearn import metrics
+import matplotlib.pyplot as plt
 
 T = TypeVar('T')
 
@@ -28,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("Sniperdebugpadding211011.log"),
+        logging.FileHandler("Spcas9debugpadding211011.log"),
         logging.StreamHandler()
     ]
 )
@@ -36,7 +39,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "Sniper_undefine_bi_checkpoint_last_un.pt"
+PATH = "Spcas9_undefine_bi_checkpoint_last_un.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -97,11 +100,11 @@ def data_load():
 
 
 def data_load_cas():
-    train_data = pd.read_csv('_data_/raw_SniperCas.csv')
+    train_data = pd.read_csv('data/raw_Spcas9.csv')
 
     bp34_col = train_data["Input_Sequence"]
     xcas_efficiency = train_data["Indel_Norm"]
-
+    # classification = train_data["classification"]
 
     return bp34_col,xcas_efficiency
 
@@ -119,18 +122,18 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
-sniperbp,sniper_efficiency = data_load_cas()
+spcas9bp,sniper_efficiency = data_load_cas()
 
 # wt_train_x = wt_df_clean["21mer"]
 # wt_efficiency = wt_df_clean["Wt_Efficiency"]
-snipercas9bp_train_x = PREPROCESS_ONE_HOT(sniperbp,23)
-snipercasbp_train_x_for_torch = np.transpose(snipercas9bp_train_x,(0,2,1))
+spcas9bp_train_x = PREPROCESS_ONE_HOT(spcas9bp,23)
+spcas9bp_train_x_for_torch = np.transpose(spcas9bp_train_x,(0,2,1))
 # test_x__for_torch = np.transpose(test_x,(0,2,1))
-cas_efficiency_set = RNADataset(snipercasbp_train_x_for_torch,sniper_efficiency)
+cas_efficiency_set = RNADataset(spcas9bp_train_x_for_torch,sniper_efficiency)
 
 
 
-sniper_train_set,sniper_test_set = torch.utils.data.random_split(cas_efficiency_set, [30236, 7558])
+spcas9_train_set,spcas9_test_set = torch.utils.data.random_split(cas_efficiency_set, [24468, 6117])
 
 
 
@@ -1944,6 +1947,15 @@ class Task():
             # logging.info("Epoch :", epoch, "train_loss:", epoch_loss)
         return epoch_loss
 
+    def classify(self,col):
+        for i,item in enumerate(col):
+            # updating the value of the row
+            if item >= 0.5:
+                col[i] = 1
+            else:
+                col[i] = 0
+
+
     def evaluate(self,model, dataloader):
         model.eval()
         epoch_loss = 0.0
@@ -1956,7 +1968,25 @@ class Task():
                 seqs = one_hot_decode(feature)
                 df["bp"] = seqs
                 df["predict"] = output.cpu()
+                col = []
+                # i = 0
+                for i, item in enumerate(df["predict"]):
+                    if item >= 0.8:
+                        col.append(1)
+                    else:
+                        col.append(0)
+
+                df["predict classification"] = col
                 df["ground truth"] = target.cpu()
+                col_truth = []
+                # i = 0
+                for i, item in enumerate(df["ground truth"]):
+                    if item >= 0.8:
+                        col_truth.append(1)
+                    else:
+                        col_truth.append(0)
+
+                df["ground truth classification"] = col_truth
                 loss = self.loss(output, target)
                 epoch_loss += loss.item()
                 dftotal = dftotal.append(df)
@@ -1989,6 +2019,7 @@ def evaluate(model, loss_fn, dataloader, device):
 max_reward = -9999999
 max_spearman = 0
 max_pearson = 0
+max_auc = 0
 
 def reinforcementlearning_main():
     '''
@@ -2010,8 +2041,8 @@ def reinforcementlearning_main():
     #
     # val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
     reward_list = []
-    if path.exists("snipercas_reward.json"):
-        with open('snipercas_reward.json', 'r') as openfile:
+    if path.exists("spcas9_reward.json"):
+        with open('spcas9_reward.json', 'r') as openfile:
             # Reading from json file
             reward_list = json.load(openfile)
 
@@ -2026,7 +2057,7 @@ def reinforcementlearning_main():
     state = torch.rand(1, 1, hidden_size).to(device)
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(sniper_train_set, sniper_test_set)
+        task = Task(spcas9_train_set, spcas9_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -2046,17 +2077,28 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(sniper_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(sniper_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(spcas9_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(spcas9_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
             prho, pp = pearsonr(df["predict"], df["ground truth"])
+            # fig, ax = plt.subplots()
+            fpr, tpr, thresholds = metrics.roc_curve(df["ground truth classification"], df["predict"])
+            # fpr1, tpr1, thresholds1 = metrics.roc_curve(df["ground truth classification"], df["predict classification"])
+            roc_auc = metrics.auc(fpr, tpr)
+            auc = roc_auc_score(df["ground truth classification"],df["predict classification"])
+            # display = metrics.RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc,
+            # estimator_name = 'example estimator')
+
+            # display.plot(ax=ax)
+            # plt.savefig('image/SpCas91.png')
+            # plt.show()
             if math.isnan(rho):
                 rho = 0
                 p = 0
 
-            logging.info("spearmanr " + str(rho) + " p " + str(p) + " pearsonr "+ str(prho) + " p " + str(pp))
+            logging.info("spearmanr " + str(rho) + " p " + str(p) + " pearsonr "+ str(prho) + " p " + str(pp)+ " auc "+str(roc_auc))
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
             mean_loss = action_loss*0.15+evaluate_loss*0.85
             spearman_reward = rho * 600 + prho * 400
@@ -2066,16 +2108,18 @@ def reinforcementlearning_main():
             reward_list.append(reward)
             if batch % 10 ==0:
                 # Serializing json
+
                 json_object = json.dumps(reward_list, indent=4)
 
                 # Writing to sample.json
-                with open("snipercas_reward.json", "w") as outfile:
+                with open("spcas9_reward.json", "w") as outfile:
                     outfile.write(json_object)
 
 
             global max_reward
             global max_spearman
             global max_pearson
+            global max_auc
 
             if rho>max_spearman:
                 max_spearman=rho
@@ -2084,6 +2128,18 @@ def reinforcementlearning_main():
             if prho>max_pearson:
                 max_pearson=prho
                 logging.error("max_pearson:" + str(max_pearson) + " architecture:" + str(actionparam))
+
+            if roc_auc>max_auc:
+                max_auc=roc_auc
+                plt.clf()
+                plt.plot(fpr, tpr, color='darkorange',
+                         lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+                plt.plot([0, 1], [0, 1], linestyle="--", lw=2, color="r", label="Chance", alpha=0.8)
+                plt.xlabel('False Positive Rate')
+                plt.ylabel('True Positive Rate')
+                plt.legend(loc="lower right")
+                plt.savefig('image/SpCas9.png')
+                logging.error("max_auc:" + str(max_auc) + " architecture:" + str(actionparam))
 
             if reward < -1000 or math.isnan(reward):
                 logging.error("bad architecture "+str(reward)+"fix to -10000")
@@ -2106,12 +2162,12 @@ def reinforcementlearning_main():
             logging.info("!!!!!!!!!!"+str(vex)+"!!!!!!!!!!!!!!!!!!!!!!!!!!!!input <0 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             reward = -1000
             agent.learn(reward, log_prob)
-        except Exception as ex:
-            logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
-            reward = -1000
-            if log_prob is None:
-                log_prob = torch.tensor([5.0],requires_grad = True)
-            agent.learn(reward, log_prob)
+        # except Exception as ex:
+        #     logging.info("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<Except"+str(ex))
+        #     reward = -1000
+        #     if log_prob is None:
+        #         log_prob = torch.tensor([5.0],requires_grad = True)
+        #     agent.learn(reward, log_prob)
 
 
 

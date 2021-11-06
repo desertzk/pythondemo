@@ -10,9 +10,9 @@ from numpy import zeros
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 from torch.distributions import Categorical
-
+from os import path
 import math
-
+import json
 import torch.nn.functional as F
 import logging
 from scipy.stats import spearmanr,pearsonr
@@ -20,9 +20,12 @@ from itertools import islice
 import operator
 from collections import OrderedDict
 from torch._jit_internal import _copy_to_script_wrapper
-
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from typing import Any, Iterable, Iterator, Mapping, Optional, overload, Tuple, TypeVar, Union
 from pathlib import Path
+from sklearn.metrics import roc_auc_score
+from sklearn import metrics
+import matplotlib.pyplot as plt
 
 T = TypeVar('T')
 
@@ -32,7 +35,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("espdebugpadding211010.log"),
+        logging.FileHandler("espdebugpadding211031.log"),
         logging.StreamHandler()
     ]
 )
@@ -132,6 +135,17 @@ def data_load_nc():
     # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
     return wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean
 
+
+def data_load_cas():
+    train_data = pd.read_csv('_data_/raw_eSpcas9.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+    # classification = train_data["classification"]
+
+    return bp34_col,xcas_efficiency
+
+
 class RNADataset(Dataset):
     def __init__(self, x, y=None, transform=None):
         self.x = x.astype("float32")
@@ -146,31 +160,19 @@ class RNADataset(Dataset):
         Y = self.y[index]
         return X, Y
 
-wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean = data_load_nc()
+spcas9bp,sniper_efficiency = data_load_cas()
 
-wt_train_x = wt_df_clean["21mer"]
-wt_efficiency = wt_df_clean["Wt_Efficiency"]
-wt_train_x = PREPROCESS_ONE_HOT(wt_train_x,21)
-wt_train_x_for_torch = np.transpose(wt_train_x,(0,2,1))
+# wt_train_x = wt_df_clean["21mer"]
+# wt_efficiency = wt_df_clean["Wt_Efficiency"]
+spcas9bp_train_x = PREPROCESS_ONE_HOT(spcas9bp,23)
+spcas9bp_train_x_for_torch = np.transpose(spcas9bp_train_x,(0,2,1))
 # test_x__for_torch = np.transpose(test_x,(0,2,1))
-wt_efficiency_set = RNADataset(wt_train_x_for_torch,wt_efficiency)
-
-eSpCas_train_x = eSpCas_df_clean["21mer"]
-eSpCas_efficiency = eSpCas_df_clean["eSpCas 9_Efficiency"]
-eSpCas_train_x = PREPROCESS_ONE_HOT(eSpCas_train_x,21)
-eSpCas_train_x_for_torch = np.transpose(eSpCas_train_x,(0,2,1))
-eSpCas_set = RNADataset(eSpCas_train_x_for_torch,eSpCas_efficiency)
+cas_efficiency_set = RNADataset(spcas9bp_train_x_for_torch,sniper_efficiency)
 
 
-SpCas9_HF1_train_x = SpCas9_HF1_df_clean["21mer"]
-SpCas9_HF1_efficiency = SpCas9_HF1_df_clean["HF1_Efficiency"]
-SpCas9_HF1_train_x = PREPROCESS_ONE_HOT(SpCas9_HF1_train_x,21)
-SpCas9_HF1_train_x_for_torch = np.transpose(SpCas9_HF1_train_x,(0,2,1))
-SpCas9_HF1_set = RNADataset(SpCas9_HF1_train_x_for_torch,SpCas9_HF1_efficiency)
 
-wt_train_set,wt_test_set = torch.utils.data.random_split(wt_efficiency_set, [42537+4726, 8341])
-eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(eSpCas_set, [44842+4982,8793])
-HF1_train_set,HF1_test_set = torch.utils.data.random_split(SpCas9_HF1_set, [43518+4836,8534])
+eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(cas_efficiency_set, [49824, 8793])
+
 
 
 pooling_funtion = {
@@ -793,7 +795,7 @@ class Regression(nn.Module):
         layers = OrderedDict()
         last_out = 4 # first time
         conv1d_out_channels = 1
-        last_input = 21 #lenth
+        last_input = 23 #lenth
         # is_first = True
         # for k,params in dict_params.items():
         idx = 0
@@ -1082,7 +1084,7 @@ class PolicyGradientNetwork(nn.Module):
         self.architecture_map = architecture_map
 
         self.nhid = hidden_size
-        self.hidden = self.init_hidden()
+        # self.hidden = self.init_hidden()
         self.flatten = nn.Flatten()
 
         # self.linear_num_layer = linear_layer
@@ -1093,7 +1095,9 @@ class PolicyGradientNetwork(nn.Module):
         state_size = hidden_size
         self.total_log_prob = 0
         self.element_count = 0
-        self.lstm1 = nn.LSTMCell(state_size, hidden_size)
+        # self.lstm1 = nn.LSTMCell(state_size, hidden_size)
+        d_model = state_size
+        self.transformer = TransformerEncoderLayer(d_model, 2, hidden_size, dropout=0.3)
         self.struct_map = {}
         self.c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
         # h_t = state
@@ -1137,11 +1141,11 @@ class PolicyGradientNetwork(nn.Module):
         #     self.__setattr__(k, nn.Linear(state_size, len(v)))
 
     # total_log_prob_list to calculate mean
-    def unary_operator(self, state,i,total_log_prob_list,h_t, c_t,list_type_prob):
+    def unary_operator(self, state,i,total_log_prob_list,hid,list_type_prob):
         # unary operation
         action_prob_map = {}
-        h_t, c_t = self.lstm1(state, (h_t, c_t))
-        hid = c_t.squeeze()  #
+        # h_t, c_t = self.lstm1(state, (h_t, c_t))
+        # hid = c_t.squeeze()  #
         output = self.type_layer_common(hid)
         type_layer_str = "type_layer" + str(i)
         type_layer_linear = self.__getattr__(type_layer_str)
@@ -1163,10 +1167,10 @@ class PolicyGradientNetwork(nn.Module):
         if layer_type is 0:
             action_prob_map["conv"] = {}
             for k, v in self.architecture_map["conv"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
                 linear_func = self.__getattr__(k_str)
-                hid = self.h_t.squeeze()
+                # hid = self.h_t.squeeze()
                 result = linear_func(hid)
                 result_softmax = F.softmax(result, dim=-1)
                 # action_prob = torch.sum(result_softmax, dim=0)
@@ -1183,10 +1187,10 @@ class PolicyGradientNetwork(nn.Module):
         elif layer_type is 1:
             action_prob_map["linear"] = {}
             for k, v in self.architecture_map["linear"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
                 linear_func = self.__getattr__(k_str)
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 result = linear_func(hid)
                 result_softmax = F.softmax(result, dim=-1)
                 action_index, log_prob, prob = self.sample(result_softmax)
@@ -1202,10 +1206,10 @@ class PolicyGradientNetwork(nn.Module):
         elif layer_type is 2:  # "multiheadattention"
             action_prob_map["multiheadattention"] = {}
             for k, v in self.architecture_map["multiheadattention"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
 
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 linear_func = self.__getattr__(k_str)
 
                 result = linear_func(hid)
@@ -1221,14 +1225,14 @@ class PolicyGradientNetwork(nn.Module):
                 self.total_log_prob += log_prob
                 # total_log_prob_list.append(log_prob)
         elif layer_type is 3:
-            return h_t, c_t,action_prob_map
+            return action_prob_map
         elif layer_type is 4:
             action_prob_map["activate"] = {}
             for k, v in self.architecture_map["activate"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
 
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 linear_func = self.__getattr__(k_str)
 
                 result = linear_func(hid)
@@ -1246,10 +1250,10 @@ class PolicyGradientNetwork(nn.Module):
         elif layer_type is 5:
             action_prob_map["dropout"] = {}
             for k, v in self.architecture_map["dropout"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
 
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 linear_func = self.__getattr__(k_str)
 
                 result = linear_func(hid)
@@ -1267,10 +1271,10 @@ class PolicyGradientNetwork(nn.Module):
         elif layer_type is 6:
             action_prob_map["batch_norm"] = {}
             for k, v in self.architecture_map["batch_norm"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
 
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 linear_func = self.__getattr__(k_str)
 
                 result = linear_func(hid)
@@ -1288,10 +1292,10 @@ class PolicyGradientNetwork(nn.Module):
         elif layer_type is 7:
             action_prob_map["pooling"] = {}
             for k, v in self.architecture_map["pooling"].items():
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
                 k_str = k  # + "@" + str(i)
 
-                hid = h_t.squeeze()
+                # hid = h_t.squeeze()
                 linear_func = self.__getattr__(k_str)
 
                 result = linear_func(hid)
@@ -1327,10 +1331,10 @@ class PolicyGradientNetwork(nn.Module):
         #         element_count += 1
         #         total_log_prob += log_prob
         else:
-            print("unknow type", layer_type)
-            return h_t, c_t,action_prob_map
+            logging.error("unknow type", layer_type)
+            return action_prob_map
 
-        return h_t, c_t,action_prob_map
+        return action_prob_map
 
 
     def forward(self, state,conv_layer=2,linear_layer=2):
@@ -1340,15 +1344,14 @@ class PolicyGradientNetwork(nn.Module):
         self.total_log_prob = 0
         self.element_count = 0
 
-        c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
-        h_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
         list_type_prob = []
         log_prob = 0
+        hid1 = self.transformer(state)
         # 用rnn这个先生成type 然后根据type生成对应种类的明细
         for i in range(self.max_layer):
-            h_t, c_t = self.lstm1(state, (h_t, c_t))
-            hid1 = c_t.squeeze() #
-            out1 = self.operator_common(hid1)
+            # h_t, c_t = self.lstm1(state, (h_t, c_t))
+            hid = hid1.squeeze() #
+            out1 = self.operator_common(hid)
             operator_count_str = "operator_count" + str(i)
             operator_count_linear = self.__getattr__(operator_count_str)
             output = operator_count_linear(out1)
@@ -1369,7 +1372,7 @@ class PolicyGradientNetwork(nn.Module):
                     "add":[]
                 }
                 for k in range(2):
-                    h_t, c_t, single_action = self.unary_operator(state,i,total_log_prob_list,h_t, c_t,list_type_prob)
+                    single_action = self.unary_operator(state,i,total_log_prob_list,hid,list_type_prob)
                     if single_action == {}:
                         continue
                     add_operator["add"].append(single_action)
@@ -1400,7 +1403,7 @@ class PolicyGradientNetwork(nn.Module):
                     "subtract":[],
                 }
                 for k in range(2):
-                    h_t, c_t,single_action = self.unary_operator(state,i,total_log_prob_list,h_t, c_t,list_type_prob)
+                    single_action = self.unary_operator(state,i,total_log_prob_list,hid,list_type_prob)
                     if single_action == {}:
                         continue
                     subtract_operator["subtract"].append(single_action)
@@ -1433,7 +1436,7 @@ class PolicyGradientNetwork(nn.Module):
                     "multiply": [],
                 }
                 for k in range(2):
-                    h_t, c_t, single_action = self.unary_operator(state, i, total_log_prob_list, h_t, c_t,
+                    single_action = self.unary_operator(state, i, total_log_prob_list, hid,
                                                                   list_type_prob)
                     if single_action == {}:
                         continue
@@ -1449,8 +1452,7 @@ class PolicyGradientNetwork(nn.Module):
                     "skip": {},
 
                 }
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
-                hid = c_t.squeeze()  #
+
 
                 skip_layer_str = "skip_layer" + str(i)
                 skip_layer_linear = self.__getattr__(skip_layer_str)
@@ -1476,7 +1478,7 @@ class PolicyGradientNetwork(nn.Module):
                     "concat": []
                 }
                 for k in range(2):
-                    h_t, c_t,single_action = self.unary_operator(state, i, total_log_prob_list, h_t, c_t,
+                    single_action = self.unary_operator(state, i, total_log_prob_list, hid,
                                                         list_type_prob)
                     if single_action == {}:
                         continue
@@ -1514,8 +1516,8 @@ class PolicyGradientNetwork(nn.Module):
 
                 action_prob_map = {}
                 operator["unary"] = [action_prob_map]
-                h_t, c_t = self.lstm1(state, (h_t, c_t))
-                hid = c_t.squeeze() #
+                # h_t, c_t = self.lstm1(state, (h_t, c_t))
+                # hid = c_t.squeeze() #
                 output = self.type_layer_common(hid)
                 type_layer_str = "type_layer"+str(i)
                 type_layer_linear = self.__getattr__(type_layer_str)
@@ -1538,10 +1540,10 @@ class PolicyGradientNetwork(nn.Module):
                 if layer_type is 0:
                     action_prob_map["conv"] = {}
                     for k, v in self.architecture_map["conv"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k #+ "@" + str(i)
                         linear_func = self.__getattr__(k_str)
-                        hid = self.h_t.squeeze()
+                        # hid = self.h_t.squeeze()
                         result = linear_func(hid)
                         result_softmax = F.softmax(result, dim=-1)
                         # action_prob = torch.sum(result_softmax, dim=0)
@@ -1558,10 +1560,10 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 1:
                     action_prob_map["linear"] = {}
                     for k, v in self.architecture_map["linear"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k #+ "@" + str(i)
                         linear_func = self.__getattr__(k_str)
-                        hid = h_t.squeeze()
+                        # hid = h_t.squeeze()
                         result = linear_func(hid)
                         result_softmax = F.softmax(result, dim=-1)
                         action_index, log_prob, prob = self.sample(result_softmax)
@@ -1577,10 +1579,9 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 2: #"multiheadattention"
                     action_prob_map["multiheadattention"] = {}
                     for k, v in self.architecture_map["multiheadattention"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k #+ "@" + str(i)
-
-                        hid = h_t.squeeze()
+                        # hid = h_t.squeeze()
                         linear_func = self.__getattr__(k_str)
 
                         result = linear_func(hid)
@@ -1600,10 +1601,10 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 4:
                     action_prob_map["activate"] = {}
                     for k, v in self.architecture_map["activate"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k #+ "@" + str(i)
 
-                        hid = h_t.squeeze()
+                        # hid = h_t.squeeze()
                         linear_func = self.__getattr__(k_str)
 
                         result = linear_func(hid)
@@ -1621,10 +1622,10 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 5:
                     action_prob_map["dropout"] = {}
                     for k, v in self.architecture_map["dropout"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k  # + "@" + str(i)
 
-                        hid = h_t.squeeze()
+                        # hid = h_t.squeeze()
                         linear_func = self.__getattr__(k_str)
 
                         result = linear_func(hid)
@@ -1642,10 +1643,10 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 6:
                     action_prob_map["batch_norm"] = {}
                     for k, v in self.architecture_map["batch_norm"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k  # + "@" + str(i)
 
-                        hid = h_t.squeeze()
+                        # hid = h_t.squeeze()
                         linear_func = self.__getattr__(k_str)
 
                         result = linear_func(hid)
@@ -1663,10 +1664,9 @@ class PolicyGradientNetwork(nn.Module):
                 elif layer_type is 7:
                     action_prob_map["pooling"] = {}
                     for k, v in self.architecture_map["pooling"].items():
-                        h_t, c_t = self.lstm1(state, (h_t, c_t))
+                        # h_t, c_t = self.lstm1(state, (h_t, c_t))
                         k_str = k  # + "@" + str(i)
 
-                        hid = h_t.squeeze()
                         linear_func = self.__getattr__(k_str)
 
                         result = linear_func(hid)
@@ -1708,7 +1708,7 @@ class PolicyGradientNetwork(nn.Module):
                 list_struct.append(operator)
         logging.info("type index  type prob" + str(list_type_prob))
 
-        return list_struct,h_t,self.total_log_prob,self.element_count,total_log_prob_list
+        return list_struct,hid,self.total_log_prob,self.element_count,total_log_prob_list
 
 
     def sample(self,item_action_prob):
@@ -1721,11 +1721,11 @@ class PolicyGradientNetwork(nn.Module):
 
 
 
-    def init_hidden(self):
-        h_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
-        c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
-
-        return (h_t, c_t)
+    # def init_hidden(self):
+    #     h_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
+    #     c_t = torch.zeros(1, self.nhid, dtype=torch.float, device=device)
+    #
+    #     return (h_t, c_t)
 
 
 
@@ -1807,7 +1807,7 @@ class PolicyGradientAgent():
         self.action_list = []
 
         self.network = PolicyGradientNetwork(self.architecture_map).to(device)
-        self.optimizer = optim.SGD(self.network.parameters(),lr=0.00009)
+        self.optimizer = optim.SGD(self.network.parameters(),lr=0.00015)
         self.try_load_checkpoint()
 
 
@@ -1985,6 +1985,15 @@ class Task():
             # logging.info("Epoch :", epoch, "train_loss:", epoch_loss)
         return epoch_loss
 
+    def classify(self,col):
+        for i,item in enumerate(col):
+            # updating the value of the row
+            if item >= 0.5:
+                col[i] = 1
+            else:
+                col[i] = 0
+
+
     def evaluate(self,model, dataloader):
         model.eval()
         epoch_loss = 0.0
@@ -1997,7 +2006,25 @@ class Task():
                 seqs = one_hot_decode(feature)
                 df["bp"] = seqs
                 df["predict"] = output.cpu()
+                col = []
+                # i = 0
+                for i, item in enumerate(df["predict"]):
+                    if item >= 0.5:
+                        col.append(1)
+                    else:
+                        col.append(0)
+
+                df["predict classification"] = col
                 df["ground truth"] = target.cpu()
+                col_truth = []
+                # i = 0
+                for i, item in enumerate(df["ground truth"]):
+                    if item >= 0.5:
+                        col_truth.append(1)
+                    else:
+                        col_truth.append(0)
+
+                df["ground truth classification"] = col_truth
                 loss = self.loss(output, target)
                 epoch_loss += loss.item()
                 dftotal = dftotal.append(df)
@@ -2030,6 +2057,7 @@ def evaluate(model, loss_fn, dataloader, device):
 max_reward = -9999999
 max_spearman = 0
 max_pearson = 0
+max_auc = 0
 
 def reinforcementlearning_main():
     '''
@@ -2050,7 +2078,16 @@ def reinforcementlearning_main():
     #                                                task_data_train)
     #
     # val_set_list = torch.utils.data.random_split(val_set, [300, 300, 300, 300, 300, 300, 300, 300, 300, 299])
+    output_map={}
+    reward_list = []
+    output_map["reward_list"]=reward_list
+    output_map["plot"]={}
 
+    if path.exists("espcas9_reward.json"):
+        with open('espcas9_reward.json', 'r') as openfile:
+            # Reading from json file
+            output_map = json.load(openfile)
+            reward_list = output_map["reward_list"]
 
 
     agent = PolicyGradientAgent()
@@ -2060,8 +2097,8 @@ def reinforcementlearning_main():
     NUM_BATCH = 5860000  # 總共更新 7600 次
 
     hidden_size = 64
-    state = torch.zeros(1, hidden_size, dtype=torch.float, device=device)
-
+    # state = torch.zeros(1, hidden_size, dtype=torch.float, device=device)
+    state = torch.rand(1, 1, hidden_size).to(device)
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
         task = Task(eSpCas_train_set, eSpCas_test_set)
@@ -2090,20 +2127,41 @@ def reinforcementlearning_main():
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
             prho, pp = pearsonr(df["predict"], df["ground truth"])
+            # fig, ax = plt.subplots()
+            fpr, tpr, thresholds = metrics.roc_curve(df["ground truth classification"], df["predict"])
+            # fpr1, tpr1, thresholds1 = metrics.roc_curve(df["ground truth classification"], df["predict classification"])
+            roc_auc = metrics.auc(fpr, tpr)
+            # auc = roc_auc_score(df["ground truth classification"],df["predict classification"])
+            # display = metrics.RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=roc_auc,
+            # estimator_name = 'example estimator')
+
+            # display.plot(ax=ax)
+            # plt.show()
             if math.isnan(rho):
                 rho = 0
                 p = 0
 
-            logging.info("spearmanr " + str(rho) + " p " + str(p) + " pearsonr "+ str(prho) + " p " + str(pp))
+            logging.info("spearmanr " + str(rho) + " p " + str(p) + " pearsonr "+ str(prho) + " p " + str(pp)+ " auc "+str(roc_auc))
             #  以前main函数训练的结果记为baseline  reward 基于 baseline 来
             mean_loss = action_loss*0.15+evaluate_loss*0.85
-            spearman_reward = rho * 600 + prho * 400
+            spearman_reward = rho * 500 + prho * 250 + roc_auc * 250
             struct_factor = 700/struct_len
             base_line = 700
             reward = spearman_reward - base_line - struct_factor
+            reward_list.append(reward)
+            if batch % 10 ==0:
+                # Serializing json
+                json_object = json.dumps(output_map, indent=4)
+
+                # Writing to sample.json
+                with open("espcas9_reward.json", "w") as outfile:
+                    outfile.write(json_object)
+
+
             global max_reward
             global max_spearman
             global max_pearson
+            global max_auc
 
             if rho>max_spearman:
                 max_spearman=rho
@@ -2113,6 +2171,24 @@ def reinforcementlearning_main():
                 max_pearson=prho
                 logging.error("max_pearson:" + str(max_pearson) + " architecture:" + str(actionparam))
 
+            if roc_auc>max_auc:
+                max_auc=roc_auc
+                output_map["plot"]["roc_auc"] = roc_auc
+                output_map["plot"]["fpr"]=fpr.tolist()
+                output_map["plot"]["tpr"]=tpr.tolist()
+                plt.clf()
+                plt.plot(fpr, tpr, color='darkorange',
+                         lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+                plt.plot([0, 1], [0, 1], linestyle="--", lw=2, color="r", label="Chance", alpha=0.8)
+                plt.xlabel('False Positive Rate')
+                plt.ylabel('True Positive Rate')
+                plt.legend(loc="lower right")
+                plt.savefig('image/eSpCas9.png')
+                json_object = json.dumps(output_map, indent=4)
+                with open("espcas9_reward.json", "w") as outfile:
+                    outfile.write(json_object)
+                logging.error("max_auc:" + str(max_auc) + " architecture:" + str(actionparam))
+
             if reward < -1000 or math.isnan(reward):
                 logging.error("bad architecture "+str(reward)+"fix to -10000")
                 reward = -1000
@@ -2121,9 +2197,7 @@ def reinforcementlearning_main():
             if reward > max_reward:
                 max_reward = reward
                 logging.error("max_reward:"+ str(max_reward) +" architecture:" + str(actionparam))
-                if max_reward >0 :
-                    # reward = reward * 3
-                    logging.info("new reward:***********************3333")
+
 
             if reward > 0:
                 # reward = reward * 1.2
