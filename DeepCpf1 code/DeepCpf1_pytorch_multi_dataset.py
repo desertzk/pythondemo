@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import numpy as np
-
+# import cv2
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -15,8 +15,8 @@ import time
 import math
 from matplotlib import pyplot as plt
 import pandas as pd
-from scipy.stats import spearmanr
-
+from scipy.stats import spearmanr,pearsonr
+from sklearn import metrics
 
 
 
@@ -51,11 +51,11 @@ def data_load():
     test_data.columns = new_header
     bp34_col = use_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
     indel_f = use_data["Indel freqeuncy(Background substracted, %)"]
-    SEQ = PREPROCESS_ONE_HOT(bp34_col)
+    SEQ = PREPROCESS_ONE_HOT(bp34_col,34)
 
     test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
     test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
+    test_SEQ = PREPROCESS_ONE_HOT(test_bp34,34)
     return SEQ,indel_f,test_SEQ,test_indel_f
 
 
@@ -67,7 +67,7 @@ class Regression(nn.Module):
         self.avg1d = nn.AvgPool1d(2) # size of window 2  (15,80)
         self.flatten = nn.Flatten()
         self.dropout = nn.Dropout(p=0.3)
-        self.linear1200_80 = nn.Linear(80 * 15, 80)
+        self.linear1200_80 = nn.Linear(80 * 9, 80)
         self.linear80_40 = nn.Linear(80, 40)  #(None, 40)
         self.linear40_40 = nn.Linear(40, 40)  # (None, 40)
         self.linear40_1 = nn.Linear(40, 1)  # (None, 40)
@@ -121,61 +121,7 @@ class Regression(nn.Module):
 
 
 
-# 这里有个问题是state怎么搞
-# 我的想法是batch里每个输入的atcg碱基作为state
-'''
-## Policy Gradient
 
-現在來搭建一個簡單的 policy network。
-我們預設模型的輸入是 8-dim 的 observation，輸出則是離散的四個動作之一：
-'''
-class PolicyGradientNetwork(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.fc1 = nn.Linear(8, 16)
-        self.fc2 = nn.Linear(16, 16)
-        self.fc3 = nn.Linear(16, 4)     #最后输出的4dim是4个动作的概率
-
-    def forward(self, state):
-        hid = torch.tanh(self.fc1(state))
-        hid = torch.tanh(self.fc2(hid))
-        result = self.fc3(hid)
-        return result
-
-
-'''
-再來，搭建一個簡單的 agent，並搭配上方的 policy network 來採取行動。
-這個 agent 能做到以下幾件事：
-- `learn()`：從記下來的 log probabilities 及 rewards 來更新 policy network。
-- `sample()`：從 environment 得到 observation 之後，利用 policy network 得出應該採取的行動。
-而此函式除了回傳抽樣出來的 action，也會回傳此次抽樣的 log probabilities。
-'''
-
-class PolicyGradientAgent():
-
-    def __init__(self, network):
-        self.network = network
-        self.optimizer = optim.SGD(self.network.parameters(), lr=0.001)
-
-    def learn(self, log_probs, rewards):
-        loss = (-log_probs * rewards).sum()
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-    def sample(self, state):
-        action_prob = self.network(torch.FloatTensor(state))
-        # 按照传入的action_prob中给定的概率，在相应的位置处进行取样，取样返回的是该位置的整数索引。
-        action_dist = Categorical(action_prob)
-        action = action_dist.sample()   # 这里就是根据概率进行采样
-        log_prob = action_dist.log_prob(action)
-        return action.item(), log_prob
-
-# 最後，建立一個 network 和 agent，就可以開始進行訓練了。
-network = PolicyGradientNetwork()
-agent = PolicyGradientAgent(network)
 
 
 class RNADataset(Dataset):
@@ -244,21 +190,140 @@ class Task():
 
 device ="cuda"
 
-train_x, train_y, test_x, test_y = data_load()
-# 维度互换
-train_x_for_torch = np.transpose(train_x,(0,2,1))
-test_x__for_torch = np.transpose(test_x,(0,2,1))
-all_train_set = RNADataset(train_x_for_torch,train_y)
-test_set = RNADataset(test_x__for_torch,test_y)
+def PREPROCESS_ONE_HOT(train_data,mer):
+    data_n = len(train_data)
+    SEQ = zeros((data_n, mer, 4), dtype=int)
+    # CA = zeros((data_n, 1), dtype=int)
+
+    for l in range(0, data_n):
+        seq = train_data[l]
+        for i in range(mer):
+            if seq[i] in "Aa":
+                SEQ[l, i, 0] = 1
+            elif seq[i] in "Cc":
+                SEQ[l, i, 1] = 1
+            elif seq[i] in "Gg":
+                SEQ[l, i, 2] = 1
+            elif seq[i] in "Tt":
+                SEQ[l, i, 3] = 1
+        # CA[l - 1, 0] = int(data[2])
+
+    return SEQ
+
+def data_load_hf1():
+    train_data = pd.read_csv('_data_/SpCas9-HF1.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [48354, 8534])
+
+    return HF1_train_set,HF1_test_set
+
+
+def data_load_wt():
+    train_data = pd.read_csv('_data_/WT-SpCas9.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [47263, 8341])
+
+    return HF1_train_set,HF1_test_set
+
+def data_load_esp():
+    train_data = pd.read_csv('_data_/raw_eSpCas9.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [49824, 8793])
+
+    return HF1_train_set,HF1_test_set
+
+
+
+def data_load_sniper():
+    train_data = pd.read_csv('_data_/raw_SniperCas.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [30236, 7558])
+
+    return HF1_train_set,HF1_test_set
+
+
+def data_load_xcas():
+    train_data = pd.read_csv('_data_/raw_xCas.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [30191, 7547])
+
+    return HF1_train_set,HF1_test_set
+
+
+def data_load_spcas9():
+    train_data = pd.read_csv('_data_/raw_SpCas9.csv')
+
+    bp34_col = train_data["Input_Sequence"]
+    xcas_efficiency = train_data["Indel_Norm"]
+
+    hf1bp_train_x = PREPROCESS_ONE_HOT(bp34_col, 23)
+    hf1bp_train_x_for_torch = np.transpose(hf1bp_train_x, (0, 2, 1))
+
+    hf1_efficiency100 = xcas_efficiency * 100
+    cas_efficiency_set = RNADataset(hf1bp_train_x_for_torch, hf1_efficiency100)
+
+    HF1_train_set, HF1_test_set = torch.utils.data.random_split(cas_efficiency_set, [24468, 6117])
+
+    return HF1_train_set,HF1_test_set
+
+
+
+train_set,test_set = data_load_xcas()
+
+# train_x, train_y, test_x, test_y = data_load()
+# # 维度互换
+# train_x_for_torch = np.transpose(train_x,(0,2,1))
+# test_x__for_torch = np.transpose(test_x,(0,2,1))
+# all_train_set = RNADataset(train_x_for_torch,train_y)
+# test_set = RNADataset(test_x__for_torch,test_y)
 batch_size = 256
-
-
-
-
-
-
-train_loader = DataLoader(all_train_set, batch_size=batch_size, shuffle=False)
-test_loader = DataLoader(test_set, batch_size=256, shuffle=False)
+train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
 
 
 
@@ -301,6 +366,18 @@ def evaluate(model, loss_fn, dataloader, device):
             df["bp"] = seqs
             df["predict"] = output.cpu()
             df["ground truth"] = target.cpu()
+
+            col_truth = []
+            # i = 0
+            for i, item in enumerate(df["ground truth"]):
+                if item >= 70:
+                    col_truth.append(1)
+                else:
+                    col_truth.append(0)
+
+            df["ground truth classification"] = col_truth
+
+
             loss = loss_fn(output, target)
             epoch_loss += loss.item()
 
@@ -310,7 +387,7 @@ def evaluate(model, loss_fn, dataloader, device):
 
 def train_one_epoch(model, loss_fn, dataloader,num_epoch,optimizer, device):
     train_loss = 0.0
-    count = math.ceil(len(train_x)/batch_size)
+    count = math.ceil(len(dataloader.dataset)/batch_size)
     model.train()  # 確保 model 是在 train model (開啟 Dropout 等...)
     # 所谓iterations就是完成一次epoch所需的batch个数。
     for i, data in enumerate(dataloader):#这里的的data就是 batch中的x和y   enumerate就是把list中的值分成（下标,值）
@@ -365,8 +442,8 @@ def main():
 
     model = Regression().to(device)
     loss = nn.MSELoss()  # 所以 loss 使用 MSELoss
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)  # optimizer 使用 Adam
-    num_epoch = 1500
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)  # optimizer 使用 Adam
+    num_epoch = 60
 
     # train(model, loss, train_loader, num_epoch, optimizer, device)
     # print(evaluate(model,loss,test_loader,device))
@@ -377,8 +454,17 @@ def main():
         avgloss,df = evaluate(model, loss, test_loader, device)
         print(avgloss)
         rho, p = spearmanr(df["predict"],df["ground truth"])
+        prho, pp = pearsonr(df["predict"], df["ground truth"])
+
+        fpr, tpr, thresholds = metrics.roc_curve(df["ground truth classification"], df["predict"])
+        # fpr1, tpr1, thresholds1 = metrics.roc_curve(df["ground truth classification"], df["predict classification"])
+        roc_auc = metrics.auc(fpr, tpr)
+
         print("spearman :"+ str(rho))
         print("p :"+str(p))
+        print("pearson :"+ str(prho))
+        print("pp :"+str(p))
+        print("roc_auc :" + str(roc_auc))
 
     #     train_loss = 0.0
     #     count = math.ceil(len(train_x)/batch_size)

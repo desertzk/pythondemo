@@ -1,12 +1,8 @@
-
 import numpy as np
-
 import torch
 import torch.nn as nn
-
 import pandas as pd
 from numpy import zeros
-
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
 from torch.distributions import Categorical
@@ -35,7 +31,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("espdebugpadding211031.log"),
+        logging.FileHandler("Spcas9debugpadding211011.log"),
         logging.StreamHandler()
     ]
 )
@@ -43,7 +39,7 @@ use_cuda = torch.cuda.is_available()
 device = torch.device("cuda" if use_cuda else "cpu")
 logging.info(device)
 # cudnn.benchmark = True
-PATH = "esp_undefine_bi_checkpoint_last_un.pt"
+PATH = "Spcas9_undefine_bi_checkpoint_last_un.pt"
 
 def one_hot_decode(feature):
     # data_n = len(feature)
@@ -103,48 +99,14 @@ def data_load():
     return SEQ,indel_f,test_SEQ,test_indel_f
 
 
-def data_load_nc():
-    train_data = pd.read_csv('data/DataS1.csv')
-    # test_data = pd.read_excel('data/41587_2018_BFnbt4061_MOESM39_ESM.xlsx', sheet_name=1)
-    # use_data = train_data[1:14999]
-    # new_header = test_data.iloc[0]
-    # test_data = test_data[1:]
-    # test_data.index = np.arange(0, len(test_data))
-    # test_data.columns = new_header
-    bp34_col = train_data["21mer"]
-    wt_efficiency = train_data["Wt_Efficiency"]
-    eSpCas = train_data["eSpCas 9_Efficiency"]
-    SpCas9_HF1 = train_data["SpCas9-HF1_Efficiency"]
-    # SEQ = PREPROCESS_ONE_HOT(bp34_col,mer=21)
-
-    wt_df = pd.DataFrame({"21mer":bp34_col,"Wt_Efficiency":wt_efficiency})
-    wt_df_clean = wt_df.dropna()
-    wt_df_clean = wt_df_clean.reset_index(drop=True)
-
-    eSpCas_df = pd.DataFrame({"21mer":bp34_col,"eSpCas 9_Efficiency":eSpCas})
-    eSpCas_df_clean = eSpCas_df.dropna()
-    eSpCas_df_clean = eSpCas_df_clean.reset_index(drop=True)
-
-    SpCas9_HF1_df = pd.DataFrame({"21mer":bp34_col,"HF1_Efficiency":SpCas9_HF1})
-    SpCas9_HF1_df_clean = SpCas9_HF1_df.dropna()
-    SpCas9_HF1_df_clean = SpCas9_HF1_df_clean.reset_index(drop=True)
-
-
-    # test_bp34 = test_data["34 bp synthetic target and target context sequence(4 bp + PAM + 23 bp protospacer + 3 bp)"]
-    # test_indel_f = test_data["Indel freqeuncy(Background substracted, %)"]
-    # test_SEQ = PREPROCESS_ONE_HOT(test_bp34)
-    return wt_df_clean,eSpCas_df_clean,SpCas9_HF1_df_clean
-
-
 def data_load_cas():
-    train_data = pd.read_csv('_data_/raw_eSpcas9.csv')
+    train_data = pd.read_csv('data/raw_Spcas9.csv')
 
     bp34_col = train_data["Input_Sequence"]
     xcas_efficiency = train_data["Indel_Norm"]
     # classification = train_data["classification"]
 
     return bp34_col,xcas_efficiency
-
 
 class RNADataset(Dataset):
     def __init__(self, x, y=None, transform=None):
@@ -171,7 +133,7 @@ cas_efficiency_set = RNADataset(spcas9bp_train_x_for_torch,sniper_efficiency)
 
 
 
-eSpCas_train_set,eSpCas_test_set = torch.utils.data.random_split(cas_efficiency_set, [49824, 8793])
+spcas9_train_set,spcas9_test_set = torch.utils.data.random_split(cas_efficiency_set, [24468, 6117])
 
 
 
@@ -1956,9 +1918,7 @@ class Task():
         # model.register_forward_hook(hook_layer("11"))
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)  # optimizer 使用 Adam
-
-        num_epoch = 40
-
+        num_epoch = 55
         # 一个epoch指代所有的数据送入网络中完成一次前向计算及反向传播的过程
         for epoch in range(num_epoch):
             train_loss = 0.0
@@ -1985,8 +1945,6 @@ class Task():
             # logging.info("Epoch :", epoch, "train_loss:", epoch_loss)
         return epoch_loss
 
-
-
     def evaluate(self,model, dataloader):
         model.eval()
         epoch_loss = 0.0
@@ -2002,7 +1960,7 @@ class Task():
                 col = []
                 # i = 0
                 for i, item in enumerate(df["predict"]):
-                    if item >= 0.5:
+                    if item >= 0.8:
                         col.append(1)
                     else:
                         col.append(0)
@@ -2012,7 +1970,7 @@ class Task():
                 col_truth = []
                 # i = 0
                 for i, item in enumerate(df["ground truth"]):
-                    if item >= 0.5:
+                    if item >= 0.7:
                         col_truth.append(1)
                     else:
                         col_truth.append(0)
@@ -2076,12 +2034,11 @@ def reinforcementlearning_main():
     output_map["reward_list"]=reward_list
     output_map["plot"]={}
 
-    if path.exists("espcas9_reward.json"):
-        with open('espcas9_reward.json', 'r') as openfile:
+    if path.exists("spcas9_reward.json"):
+        with open('spcas9_reward.json', 'r') as openfile:
             # Reading from json file
             output_map = json.load(openfile)
             reward_list = output_map["reward_list"]
-
 
     agent = PolicyGradientAgent()
 
@@ -2094,7 +2051,7 @@ def reinforcementlearning_main():
     state = torch.rand(1, 1, hidden_size).to(device)
     for batch in range(NUM_BATCH):
         # train_set, val_set = torch.utils.data.random_split(all_train_set, [12000, 2999])
-        task = Task(eSpCas_train_set, eSpCas_test_set)
+        task = Task(spcas9_train_set, spcas9_test_set)
         # 暂时先和数据分离开 state和数据无关
         # state = task.get_state()
 
@@ -2102,7 +2059,7 @@ def reinforcementlearning_main():
 
         if actionparam is None:
             logging.info("len 1   -1000")
-            reward = -1000
+            reward = -200
             # log_prob = torch.tensor(-3.0) #不能这里设置
             agent.learn(reward, log_prob)
             continue
@@ -2114,8 +2071,8 @@ def reinforcementlearning_main():
             model = Regression(actionparam).to(device)
             logging.info(model)
             # agent.set_new_num(new_conv_num.get("action"),new_linear_num.get("action"))
-            tr_load = DataLoader(eSpCas_train_set, batch_size=512, shuffle=False)
-            val_load = DataLoader(eSpCas_test_set, batch_size=512, shuffle=False)
+            tr_load = DataLoader(spcas9_train_set, batch_size=512, shuffle=False)
+            val_load = DataLoader(spcas9_test_set, batch_size=512, shuffle=False)
             action_loss = task.train(model,tr_load)
             evaluate_loss,df = task.evaluate(model,val_load)
             rho, p = spearmanr(df["predict"], df["ground truth"])
@@ -2142,12 +2099,12 @@ def reinforcementlearning_main():
             base_line = 700
             reward = spearman_reward - base_line - struct_factor
             reward_list.append(reward)
-            if batch % 10 ==0:
+            if batch % 10 == 0:
                 # Serializing json
                 json_object = json.dumps(output_map, indent=4)
 
                 # Writing to sample.json
-                with open("espcas9_reward.json", "w") as outfile:
+                with open("spcas9_reward.json", "w") as outfile:
                     outfile.write(json_object)
 
 
@@ -2164,11 +2121,11 @@ def reinforcementlearning_main():
                 max_pearson=prho
                 logging.error("max_pearson:" + str(max_pearson) + " architecture:" + str(actionparam))
 
-            if roc_auc>max_auc:
-                max_auc=roc_auc
+            if roc_auc > max_auc:
+                max_auc = roc_auc
                 output_map["plot"]["roc_auc"] = roc_auc
-                output_map["plot"]["fpr"]=fpr.tolist()
-                output_map["plot"]["tpr"]=tpr.tolist()
+                output_map["plot"]["fpr"] = fpr.tolist()
+                output_map["plot"]["tpr"] = tpr.tolist()
                 plt.clf()
                 plt.plot(fpr, tpr, color='darkorange',
                          lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
@@ -2176,9 +2133,9 @@ def reinforcementlearning_main():
                 plt.xlabel('False Positive Rate')
                 plt.ylabel('True Positive Rate')
                 plt.legend(loc="lower right")
-                plt.savefig('image/eSpCas9.png')
+                plt.savefig('image/SpCas9.png')
                 json_object = json.dumps(output_map, indent=4)
-                with open("espcas9_reward.json", "w") as outfile:
+                with open("wt_reward.json", "w") as outfile:
                     outfile.write(json_object)
                 logging.error("max_auc:" + str(max_auc) + " architecture:" + str(actionparam))
 
