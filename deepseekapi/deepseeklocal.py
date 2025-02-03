@@ -1,27 +1,61 @@
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-
 
 # 下载并加载模型和分词器
 model_name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModel.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.bfloat16,
+    device_map="auto"
+)
 
-# 准备输入文本
-texts = ["Hello, how are you?", "Nice to meet you!"]
+# 创建对话历史存储
+conversation_history = []
 
-# 对输入文本进行编码
-inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=128)
+# 定义系统提示
+system_prompt = "You are a helpful assistant."
 
-# 模型推断
-with torch.no_grad():
-    outputs = model(**inputs)
+while True:
+    # 获取用户输入
+    user_input = input("\nUser: ")
+    
+    # 退出条件
+    if user_input.lower() in ["exit", "quit"]:
+        break
+    
+    # 将用户输入加入对话历史
+    conversation_history.append({"role": "user", "content": user_input})
+    
+    # 生成模型输入
+    input_ids = tokenizer.apply_chat_template(
+        conversation=conversation_history,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt"
+    ).to(model.device)
+    
+    # 生成回复
+    outputs = model.generate(
+        input_ids,
+        max_new_tokens=512,
+        do_sample=True,
+        temperature=0.6,
+        top_p=0.9,
+        pad_token_id=tokenizer.eos_token_id
+    )
+    
+    # 解码响应并移除特殊标记
+    response = tokenizer.decode(
+        outputs[0][len(input_ids[0]):],
+        skip_special_tokens=True
+    ).strip()
+    
+    # 将助手回复加入对话历史
+    conversation_history.append({"role": "assistant", "content": response})
+    
+    # 打印助手回复
+    print(f"\nAssistant: {response}")
 
-# 输出最后一层隐藏状态的结果
-last_hidden_states = outputs.last_hidden_state
-
-print("Last hidden states shape:", last_hidden_states.size())
-
-# 如果需要进一步处理输出，比如提取[CLS]标记的表示作为句子向量
-cls_representation = last_hidden_states[:, 0, :].numpy()  # 提取[CLS]标记的表示
-print("CLS token representations shape:", cls_representation.shape)
+# 退出提示
+print("\nChat session ended.")
